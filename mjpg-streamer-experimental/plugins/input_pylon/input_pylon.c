@@ -1,16 +1,22 @@
 /*******************************************************************************
+# Basler Pylon input-plugin for MJPG-streamer                                  #
 #                                                                              #
-#      MJPG-streamer allows to stream JPG frames from an input-plugin          #
-#      to several output plugins                                               #
+# This plugin works with Basler Pylon based machine vision cameras             #
+# and allows encoding their raw image data to MJPG stream.                     #
 #                                                                              #
-#      Copyright (C) 2007 Tom Stöveken                                         #
+# The plugin is based on                                                       #
+# -mjpeg-streamer input_uvc plugin:                                            #
+#   Originally Copyright (C) 2005 2006 Laurent Pinchart &&  Michel Xhaard      #
+#   Modifications Copyright (C) 2006  Gabriel A. Devenyi                       #
+#   Modifications Copyright (C) 2007  Tom Stöveken                             #
+# -Pylon software suite's sample "OverlappedGrab" (C) 2018 Basler              #
 #                                                                              #
-#      Input plugin for Basler cameras via their Pylon software suite          #
-#      Copyright (C) 2018 Tapani Rantakokko                                    #
+# Integration and modifications Copyright (C) 2018  Tapani Rantakokko / Finwe  #
 #                                                                              #
 # This program is free software; you can redistribute it and/or modify         #
 # it under the terms of the GNU General Public License as published by         #
-# the Free Software Foundation; version 2 of the License.                      #
+# the Free Software Foundation; either version 2 of the License, or            #
+# (at your option) any later version.                                          #
 #                                                                              #
 # This program is distributed in the hope that it will be useful,              #
 # but WITHOUT ANY WARRANTY; without even the implied warranty of               #
@@ -22,6 +28,7 @@
 # Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA    #
 #                                                                              #
 *******************************************************************************/
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -50,81 +57,85 @@
 #define INPUT_PLUGIN_NAME "Pylon input plugin"
 
 #define NUM_BUFFERS 7
+//#define ALLOW_FRAME_SIZE_CHANGE_DURING_STREAMING
+//#define ENSURE_CORRECT_FRAME_ORDER
 
-void printErrorAndExit(GENAPIC_RESULT errc);
-
-#define CHECK( errc ) if ( GENAPI_E_OK != errc ) printErrorAndExit( errc )
+void print_error_and_exit(GENAPIC_RESULT errc);
+#define CHECK( errc ) if ( GENAPI_E_OK != errc ) print_error_and_exit( errc )
 
 /* Private functions and variables to this plugin. */
-static pthread_t   worked_grabber;
-static pthread_t   worker_encoder_1;
-static pthread_t   worker_encoder_2;
-static pthread_t   worker_encoder_3;
-static pthread_t   worker_encoder_4;
-static globals     *pglobal;
+
+/* Frame grabber thread. */
+static pthread_t worker_grabber_th1;
+
+/* Encoder threads 1-2. */
+static pthread_t worker_encoder_th1;
+static pthread_t worker_encoder_th2;
+static pthread_t worker_encoder_th3;
+static pthread_t worker_encoder_th4;
+
+/* Mutexes and conditions. */
 static pthread_mutex_t controls_mutex;
 static pthread_mutex_t encode_queue_mutex;
 static pthread_mutex_t release_buf_queue_mutex;
 static pthread_cond_t encode_cond;
-static int plugin_number;
-static int current_buffer_index;
 
-void *worker_thread(void *);
-void worker_cleanup(void *);
+/* Handle for mjpeg-streamer globals. */
+static globals *pglobal;
+
+/* Plugin number. */
+static int plugin_number;
+
+/* Grabber thread function. */
+void *worker_grabber(void *);
+
+/* Grabber thread cleanup function. */
+void worker_grabber_cleanup(void *);
+
+/* Encoder thread function . */
 void *worker_encoder(void *);
+
+/* Encoder thread cleanup function. */
 void worker_encoder_cleanup(void *);
+
+/* Print help message to screen. */
 void help(void);
 
-static int delay = 1000;
-
-/* details of converted JPG pictures */
-struct pic {
-    const unsigned char *data;
-    const int size;
-};
-
-/* return value of pylon methods */
+/* Return value of pylon methods. */
 GENAPIC_RESULT res;
 
-/* number of available devices */
+/* Number of available pylon devices. */
 size_t numDevices;
 
-/* handle for the pylon device */
+/* Handle for the pylon device. */
 PYLON_DEVICE_HANDLE hDev;
 
-/* handle for the pylon stream grabber */
+/* Handle for the pylon stream grabber. */
 PYLON_STREAMGRABBER_HANDLE hGrabber;
 
-/* handle used for waiting for a grab to be finished */
+/* Handle used for waiting for a grab to be finished. */
 PYLON_WAITOBJECT_HANDLE hWait;
 
-/* size of an image frame in bytes */
+/* Size of an image frame in bytes. */
 int32_t payloadSize;
 
-/* buffers used for grabbing */
+/* Buffers used for grabbing. */
 unsigned char *buffers[NUM_BUFFERS];
 
-/* handles for the buffers */
+/* Handles for the buffers. */
 PYLON_STREAMBUFFER_HANDLE bufHandles[NUM_BUFFERS];
 
-int frameWidths[NUM_BUFFERS];
-int frameHeights[NUM_BUFFERS];
-int frameSizes[NUM_BUFFERS];
-
-/* stores the result of a grab operation */
+/* Stores the result of a grab operation. */
 PylonGrabResult_t grabResult;
 
-/* the number of streams the device provides */
+/* The number of streams the device provides. */
 size_t nStreams;
 
-/* used for checking feature availability */
+/* Used for checking feature availability. */
 _Bool isAvail;
 
-/* used as an output parameter */
+/* Used as an output parameter. */
 _Bool isReady;
-
-/* counter */
-size_t i;
 
 /* Linked list node. */
 typedef struct node {
@@ -132,8 +143,7 @@ typedef struct node {
     struct node *next;
 } node_t;
 
-
-/* push to list end */
+/* Push node to the end of the list. */
 void push(node_t *head, void* ptr) {
     node_t *current = head;
     while(current->next != NULL) {
@@ -144,7 +154,7 @@ void push(node_t *head, void* ptr) {
     current->next->next = NULL;
 }
 
-/* pop from list head */
+/* Pop node from the head of the list. */
 void* pop(node_t **head) {
     void* retval = NULL;
     node_t *next_node = NULL;
@@ -158,7 +168,7 @@ void* pop(node_t **head) {
     return retval;
 }
 
-/* destroy list */
+/* Destroy the whole list. */
 void destroy(node_t **head) {
     if (*head == NULL) {
         return;
@@ -167,23 +177,6 @@ void destroy(node_t **head) {
         free(*head);
     }
 }
-
-unsigned int frameNumGrabbed = -1;
-unsigned int frameNumLastSent = -1;
-
-int used_buffers = 0;
-
-//int getFreeBufsCount(node_t *head) {
-//    int count = 0;
-//    node_t *current = head;
-//
-//    while(current != NULL) {
-//        count++;
-//        current = current->next;
-//    }
-//
-//    return NUM_BUFFERS - count;
-//}
 
 /* Debug print encode queue contents. */
 void print_encode_queue(node_t *head) {
@@ -198,10 +191,10 @@ void print_encode_queue(node_t *head) {
     }
 }
 
-/* queue of buffer indexes that have a frame waiting to be encoded. */
+/* Queue of buffer indexes that have a frame waiting to be encoded. */
 node_t *encodeQueue = NULL;
 
-/* queue of buffer indexes that are no longer used by encoder threads. */
+/* Queue of buffer indexes that are no longer used by encoder threads. */
 node_t *releaseBufQueue = NULL;
 
 /* Configuration struct for encoder thread. */
@@ -210,6 +203,7 @@ typedef struct encoder_config {
     unsigned char *buffer;
 } encoder_config_t;
 
+/* Configuration objects for encoder threads. */
 struct encoder_config enc1;
 struct encoder_config enc2;
 struct encoder_config enc3;
@@ -218,7 +212,18 @@ struct encoder_config enc4;
 /* The number of encoder threads currently online. */
 int encoders_online = 0;
 
-/*** plugin interface functions ***/
+/* Running number of last grabbed frame. */
+unsigned int frameNumGrabbed = -1;
+
+/* Running number of last sent frame (frame given to output plugins). */
+unsigned int frameNumLastSent = -1;
+
+/* The number of grab buffers currently in use. */
+int used_buffers = 0;
+
+static int delay = 1000;
+
+/* Plugin interface functions */
 
 /******************************************************************************
 Description.: parse input parameters
@@ -325,9 +330,11 @@ Return Value: 0
 int input_stop(int id)
 {
     DBG("Stop received, cancelling ALL threads\n");
-    pthread_cancel(worker_encoder_1);
-    pthread_cancel(worker_encoder_2);
-    pthread_cancel(worked_grabber);
+    pthread_cancel(worker_encoder_th1);
+    pthread_cancel(worker_encoder_th2);
+//    pthread_cancel(worker_encoder_th3);
+//    pthread_cancel(worker_encoder_th4);
+    pthread_cancel(worker_grabber_th1);
 
     return 0;
 }
@@ -339,54 +346,52 @@ Return Value: 0
 ******************************************************************************/
 int input_run(int id)
 {
-    current_buffer_index = -1;
-
     DBG("Creating frame grabber thread 1\n");
-    if (pthread_create(&worked_grabber, 0, worker_thread, NULL) != 0) {
+    if (pthread_create(&worker_grabber_th1, 0, worker_grabber, NULL) != 0) {
         free(pglobal->in[id].buf);
         fprintf(stderr, "ERROR: Failed to start grabber thread 1!\n");
         exit(EXIT_FAILURE);
     }
-    pthread_detach(worked_grabber);
+    pthread_detach(worker_grabber_th1);
 
     DBG("Creating JPEG encoder thread 1\n");
     enc1.index = 1;
     enc1.buffer = NULL;
-    if (pthread_create(&worker_encoder_1, 0, worker_encoder, (void*)&enc1) != 0) {
+    if (pthread_create(&worker_encoder_th1, 0, worker_encoder, (void*)&enc1) != 0) {
         fprintf(stderr, "ERROR: Could not start encoder thread 1\n");
         exit(EXIT_FAILURE);
     }
-    pthread_detach(worker_encoder_1);
+    pthread_detach(worker_encoder_th1);
     encoders_online++;
 
     DBG("Creating JPEG encoder thread 2\n");
     enc2.index = 2;
     enc2.buffer = NULL;
-    if (pthread_create(&worker_encoder_2, 0, worker_encoder, (void*)&enc2) != 0) {
+    if (pthread_create(&worker_encoder_th2, 0, worker_encoder, (void*)&enc2) != 0) {
         fprintf(stderr, "ERROR: Could not start encoder thread 2\n");
         exit(EXIT_FAILURE);
     }
-    pthread_detach(worker_encoder_2);
+    pthread_detach(worker_encoder_th2);
     encoders_online++;
 
 //    DBG("Creating JPEG encoder thread 3\n");
 //    enc3.index = 3;
 //    enc3.buffer = NULL;
-//    if (pthread_create(&worker_encoder_3, 0, worker_encoder, (void*)&enc3) != 0) {
+//    if (pthread_create(&worker_encoder_th3, 0, worker_encoder, (void*)&enc3) != 0) {
 //        fprintf(stderr, "ERROR: Could not start encoder thread 3\n");
 //        exit(EXIT_FAILURE);
 //    }
-//    pthread_detach(worker_encoder_3);
+//    pthread_detach(worker_encoder_th3);
 //    encoders_online++;
 //
 //    DBG("Creating JPEG encoder thread 4\n");
 //    enc4.index = 4;
 //    enc4.buffer = NULL;
-//    if (pthread_create(&worker_encoder_4, 0, worker_encoder, (void*)&enc4) != 0) {
+//    if (pthread_create(&worker_encoder_th4, 0, worker_encoder, (void*)&enc4) != 0) {
 //        fprintf(stderr, "ERROR: Could not start encoder thread 4\n");
 //        exit(EXIT_FAILURE);
 //    }
-//    pthread_detach(worker_encoder_4);
+//    pthread_detach(worker_encoder_th4);
 //    encoders_online++;
 
     return 0;
@@ -409,12 +414,11 @@ void help(void)
 }
 
 /******************************************************************************
-Description.: acquire a picture from camera, encode to JPEG format, and signal
-              this to all output plugins
+Description.: acquire a picture from camera and signal encoders
 Input Value.: arg is not used
 Return Value: NULL
 ******************************************************************************/
-void* worker_thread(void *arg)
+void* worker_grabber(void *arg)
 {
     int i = 0;
     NODEMAP_HANDLE      hNodeMap;
@@ -422,40 +426,40 @@ void* worker_thread(void *arg)
     const char          * pFeatureName;
     _Bool                val, val_read, val_write;
 
-    /* set cleanup handler to cleanup allocated resources */
-    pthread_cleanup_push(worker_cleanup, NULL);
+    /* Set cleanup handler to cleanup allocated resources. */
+    pthread_cleanup_push(worker_grabber_cleanup, NULL);
 
-        /* initialize pylon runtime */
+    /* Initialize pylon runtime. */
     PylonInitialize();
 
-    /* enumerate all camera devices */
+    /* Enumerate all camera devices. */
     res = PylonEnumerateDevices(&numDevices);
     CHECK(res);
-    if(0 == numDevices) {
-        fprintf(stderr, "No devices found.\n");
+    if (0 == numDevices) {
+        fprintf(stderr, "No pylon devices found!\n");
         PylonTerminate();
         exit(EXIT_FAILURE);
     } else {
         IPRINT("cameras found.....: %i\n", numDevices);
     }
 
-    /* get a handle for the first device found */
+    /* Get a handle for the first device found. */
     res = PylonCreateDeviceByIndex(0, &hDev);
     CHECK(res);
 
-    /* open it for configuring parameters and for grabbing images */
+    /* Open it for configuring parameters and for grabbing images. */
     res = PylonDeviceOpen(hDev,
         PYLONC_ACCESS_MODE_CONTROL | PYLONC_ACCESS_MODE_STREAM);
     CHECK(res);
 
-    /* print out the name of the camera */
+    /* Print out the name of the camera. */
     {
         char buf[256];
         size_t siz = sizeof(buf);
         _Bool isReadable;
 
         isReadable = PylonDeviceFeatureIsReadable(hDev, "DeviceModelName");
-        if(isReadable) {
+        if (isReadable) {
             res = PylonDeviceFeatureToString(hDev,
                 "DeviceModelName", buf, &siz);
             CHECK(res);
@@ -472,7 +476,7 @@ void* worker_thread(void *arg)
         "EnumEntry_PixelFormat_RGB8");
 //    isAvail = PylonDeviceFeatureIsAvailable(hDev,
 //        "EnumEntry_PixelFormat_YUV422_YUYV_Packed");
-    if(isAvail) {
+    if (isAvail) {
         /*res = PylonDeviceFeatureFromString(hDev, "PixelFormat", "Mono8");*/
         /*res = PylonDeviceFeatureFromString(hDev, "PixelFormat", "YCbCr422_8");*/
         res = PylonDeviceFeatureFromString(hDev, "PixelFormat", "RGB8");
@@ -547,44 +551,11 @@ void* worker_thread(void *arg)
 //    printf("The '%s' feature %s readable\n", pFeatureName, val_read ? "is" : "is not");
 //    printf("The '%s' feature %s writable\n", pFeatureName, val_write ? "is" : "is not");
 //
-    /* Write OffsetX. */
-    pFeatureName = "OffsetX";
-    res = GenApiNodeMapGetNode(hNodeMap, pFeatureName, &hNode);
-    CHECK(res);
-    if(GENAPIC_INVALID_HANDLE != hNode)
-    {
-        res = GenApiIntegerSetValue(hNode, 272);
-        CHECK(res);
-        printf("The '%s' is now %d\n", pFeatureName, 272);
-    }
-    else
-    {
-        /* Node does not exist --> feature is not implemented. */
-        val = 0;
-    }
-
-    /* Write OffsetY. */
-    pFeatureName = "OffsetY";
-    res = GenApiNodeMapGetNode(hNodeMap, pFeatureName, &hNode);
-    CHECK(res);
-    if(GENAPIC_INVALID_HANDLE != hNode)
-    {
-        res = GenApiIntegerSetValue(hNode, 204);
-        CHECK(res);
-        printf("The '%s' is now %d\n", pFeatureName, 204);
-    }
-    else
-    {
-        /* Node does not exist --> feature is not implemented. */
-        val = 0;
-    }
-
-
-    /* Write width. */
+    /* Set image width. */
     pFeatureName = "Width";
     res = GenApiNodeMapGetNode(hNodeMap, pFeatureName, &hNode);
     CHECK(res);
-    if(GENAPIC_INVALID_HANDLE != hNode)
+    if (GENAPIC_INVALID_HANDLE != hNode)
     {
         res = GenApiIntegerSetValue(hNode, 2048);
         CHECK(res);
@@ -592,16 +563,15 @@ void* worker_thread(void *arg)
     }
     else
     {
-        /* Node does not exist --> feature is not implemented. */
         val = 0;
+        printf("The '%s' feature is not implemented\n", pFeatureName);
     }
-//    printf("The '%s' feature %s implemented\n", pFeatureName, val ? "is" : "is not");
-//
-    /* Write height. */
+
+    /* Set image height. */
     pFeatureName = "Height";
     res = GenApiNodeMapGetNode(hNodeMap, pFeatureName, &hNode);
     CHECK(res);
-    if(GENAPIC_INVALID_HANDLE != hNode)
+    if (GENAPIC_INVALID_HANDLE != hNode)
     {
         res = GenApiIntegerSetValue(hNode, 1536);
         CHECK(res);
@@ -609,16 +579,47 @@ void* worker_thread(void *arg)
     }
     else
     {
-        /* Node does not exist --> feature is not implemented. */
         val = 0;
+        printf("The '%s' feature is not implemented\n", pFeatureName);
     }
-    printf("The '%s' feature %s implemented\n", pFeatureName, val ? "is" : "is not");
 
-    /* Write acquisition frame rate. */
+    /* Set offset x. */
+    pFeatureName = "OffsetX";
+    res = GenApiNodeMapGetNode(hNodeMap, pFeatureName, &hNode);
+    CHECK(res);
+    if (GENAPIC_INVALID_HANDLE != hNode)
+    {
+        res = GenApiIntegerSetValue(hNode, 272);
+        CHECK(res);
+        printf("The '%s' is now %d\n", pFeatureName, 272);
+    }
+    else
+    {
+        val = 0;
+        printf("The '%s' feature is not implemented\n", pFeatureName);
+    }
+
+    /* Set offset y. */
+    pFeatureName = "OffsetY";
+    res = GenApiNodeMapGetNode(hNodeMap, pFeatureName, &hNode);
+    CHECK(res);
+    if (GENAPIC_INVALID_HANDLE != hNode)
+    {
+        res = GenApiIntegerSetValue(hNode, 204);
+        CHECK(res);
+        printf("The '%s' is now %d\n", pFeatureName, 204);
+    }
+    else
+    {
+        val = 0;
+        printf("The '%s' feature is not implemented\n", pFeatureName);
+    }
+
+    /* Set acquisition frame rate. */
     pFeatureName = "AcquisitionFrameRate";
     res = GenApiNodeMapGetNode(hNodeMap, pFeatureName, &hNode);
     CHECK(res);
-    if(GENAPIC_INVALID_HANDLE != hNode)
+    if (GENAPIC_INVALID_HANDLE != hNode)
     {
         res = GenApiFloatSetValue(hNode, 7.5f);
         CHECK(res);
@@ -626,16 +627,14 @@ void* worker_thread(void *arg)
     }
     else
     {
-        /* Node does not exist --> feature is not implemented. */
         val = 0;
+        printf("The '%s' feature is not implemented\n", pFeatureName);
     }
-//    printf("The '%s' feature %s implemented\n", pFeatureName, val ? "is" : "is not");
 
-
-    /* disable acquisition start trigger if available */
+    /* Disable acquisition start trigger if available. */
     isAvail = PylonDeviceFeatureIsAvailable(hDev,
         "EnumEntry_TriggerSelector_AcquisitionStart");
-    if(isAvail) {
+    if (isAvail) {
         res = PylonDeviceFeatureFromString(hDev, "TriggerSelector",
             "AcquisitionStart");
         CHECK(res);
@@ -643,10 +642,10 @@ void* worker_thread(void *arg)
         CHECK(res);
     }
 
-    /* disable frame burst start trigger if available */
+    /* Disable frame burst start trigger if available. */
     isAvail = PylonDeviceFeatureIsAvailable(hDev,
         "EnumEntry_TriggerSelector_FrameBurstStart");
-    if(isAvail) {
+    if (isAvail) {
         res = PylonDeviceFeatureFromString(hDev, "TriggerSelector",
             "FrameBurstStart");
         CHECK(res);
@@ -654,10 +653,10 @@ void* worker_thread(void *arg)
         CHECK(res);
     }
 
-    /* disable frame start trigger if available */
+    /* Disable frame start trigger if available. */
     isAvail = PylonDeviceFeatureIsAvailable(hDev,
         "EnumEntry_TriggerSelector_FrameStart");
-    if(isAvail) {
+    if (isAvail) {
         res = PylonDeviceFeatureFromString(hDev, "TriggerSelector",
             "FrameStart");
         CHECK(res);
@@ -665,40 +664,40 @@ void* worker_thread(void *arg)
         CHECK(res);
     }
 
-    /* use the Continuous frame acquisition mode, i.e., the camera delivers
-       images continuously */
+    /* Use the Continuous frame acquisition mode, i.e., the camera delivers
+       images continuously. */
     res = PylonDeviceFeatureFromString(hDev, "AcquisitionMode", "Continuous");
     CHECK(res);
 
-    /* for GigE cameras, increase the packet size for better performance:
+    /* For GigE cameras, increase the packet size for better performance:
        when the network adapter supports jumbo frames, set the packet
        size to a value > 1500, e.g., to 8192 */
     isAvail = PylonDeviceFeatureIsWritable(hDev, "GevSCPSPacketSize");
-    if(isAvail) {
+    if (isAvail) {
         res = PylonDeviceSetIntegerFeature(hDev, "GevSCPSPacketSize", 1500);
         CHECK(res);
     }
 
-    /* number of streams supported by the device and the transport layer */
+    /* Number of streams supported by the device and the transport layer. */
     res = PylonDeviceGetNumStreamGrabberChannels(hDev, &nStreams);
     CHECK(res);
-    if(nStreams < 1) {
+    if (nStreams < 1) {
         fprintf(stderr, "The transport layer doesn't support image streams\n");
         PylonTerminate();
         exit(EXIT_FAILURE);
     }
 
-    /* create and open a stream grabber for the first channel */
+    /* Create and open a stream grabber for the first channel. */
     res = PylonDeviceGetStreamGrabber(hDev, 0, &hGrabber);
     CHECK(res);
     res = PylonStreamGrabberOpen(hGrabber);
     CHECK(res);
 
-    /* get a handle for the stream grabber's wait object */
+    /* Get a handle for the stream grabber's wait object. */
     res = PylonStreamGrabberGetWaitObject(hGrabber, &hWait);
     CHECK(res);
 
-    /* determine the required size of the grab buffer */
+    /* Determine the required size of the grab buffer. */
     if(PylonDeviceFeatureIsReadable(hDev, "PayloadSize")) {
         res = PylonDeviceGetIntegerFeatureInt32(hDev, "PayloadSize",
             &payloadSize);
@@ -712,7 +711,7 @@ void* worker_thread(void *arg)
         CHECK(res);
         res = GenApiNodeMapGetNode(hStreamNodeMap, "PayloadSize", &hNode);
         CHECK(res);
-        if(GENAPIC_INVALID_HANDLE == hNode) {
+        if (GENAPIC_INVALID_HANDLE == hNode) {
             fprintf(stderr, "There is no PayloadSize parameter.\n");
             PylonTerminate();
             exit(EXIT_FAILURE);
@@ -722,175 +721,146 @@ void* worker_thread(void *arg)
         payloadSize = (int32_t) i64payloadSize;
     }
 
-    /* allocate memory for grabbing */
-    for(i = 0; i < NUM_BUFFERS; ++i) {
+    /* Allocate memory for grabbing buffers. */
+    for (i = 0; i < NUM_BUFFERS; ++i) {
         buffers[i] = (unsigned char*) malloc(payloadSize);
-        if(NULL == buffers[i]) {
-            fprintf(stderr, "Out of memory!\n");
+        if (NULL == buffers[i]) {
+            fprintf(stderr, "ERROR: Grabber memory alloc failed!\n");
             PylonTerminate();
             exit(EXIT_FAILURE);
         }
     }
 
-    /* tell the stream grabber the number and size of the buffers */
+    /* Tell the stream grabber the number and size of the buffers. */
     res = PylonStreamGrabberSetMaxNumBuffer(hGrabber, NUM_BUFFERS);
-    //res = PylonStreamGrabberSetMaxNumBuffer(hGrabber, 1);
     CHECK(res);
     res = PylonStreamGrabberSetMaxBufferSize(hGrabber, payloadSize);
-    //res = PylonStreamGrabberSetMaxBufferSize(hGrabber, 263168); // works with 262144!
     CHECK(res);
+    IPRINT("frame size (bytes): %i\n", payloadSize);
 
-    IPRINT("payload...........: %i\n", payloadSize);
-
-    /* allocate the resources required for grabbing */
+    /* Allocate the resources required for grabbing. */
     res = PylonStreamGrabberPrepareGrab(hGrabber);
     CHECK(res);
 
-    /* register buffers at the stream grabber */
-    for(i = 0; i < NUM_BUFFERS; ++i) {
+    /* Register buffers at the stream grabber. */
+    for (i = 0; i < NUM_BUFFERS; ++i) {
         res = PylonStreamGrabberRegisterBuffer(hGrabber, buffers[i],
             payloadSize, &bufHandles[i]);
         CHECK(res);
     }
 
-    /* feed the buffers into the stream grabber's input queue */
-    for(i = 0; i < NUM_BUFFERS; ++i) {
+    /* Feed the buffers into the stream grabber's input queue. */
+    for (i = 0; i < NUM_BUFFERS; ++i) {
         res = PylonStreamGrabberQueueBuffer(hGrabber, bufHandles[i], (void*)i);
         CHECK(res);
     }
 
-    /* now the stream grabber is prepared and as soon as the camera starts to
-       acquire images, the image data will be grabbed into the buffers provided */
+    /* Now the stream grabber is prepared and as soon as the camera starts to
+       acquire images, the image data will be grabbed into the buffers. */
 
-    /* let the camera acquire images */
+    /* Let the camera acquire images. */
     res = PylonDeviceExecuteCommandFeature(hDev, "AcquisitionStart");
     CHECK(res);
 
-    while(!pglobal->stop) {
+    /* Grabber loop. */
+    while (!pglobal->stop) {
 
         size_t bufferIndex;
         //unsigned char min, max;
 
+        /* If encoders have buffers to be requeued, do it now. */
         pthread_mutex_lock(&release_buf_queue_mutex);
-
-        while(releaseBufQueue != NULL) {
-            DBG("About to pop from grabber buffer...\n");
-            video_frame_t *img = pop(&releaseBufQueue);
-            DBG("Popped from grabber buffer %d\n", img->buffer);
-            res = PylonStreamGrabberQueueBuffer(hGrabber, bufHandles[img->buffer],
-                (void*) img->buffer);
+        while (releaseBufQueue != NULL) {
+            video_frame_t *frame = pop(&releaseBufQueue);
+            res = PylonStreamGrabberQueueBuffer(hGrabber,
+                bufHandles[frame->buffer], (void*) frame->buffer);
             CHECK(res);
-            DBG("Freed grabber buffer %d\n", img->buffer);
             --used_buffers;
-            free(img);
-            img = NULL;
+            DBG("Freed grabber buffer %d\n", frame->buffer);
+            free(frame);
+            frame = NULL;
         }
-
         DBG("Used buffers: %d\n", used_buffers);
-
         pthread_mutex_unlock(&release_buf_queue_mutex);
 
         DBG("Waiting for frame from camera...\n");
 
-        /* ensure we have free buffers */
-        if(used_buffers > 4) {
-            usleep(70000);
+        /* Ensure we have free buffers. */
+        if (used_buffers > 4) {
+            usleep(70000); /* Almost all used, sleep and check again. */
             continue;
         }
 
-        /* wait for the next buffer to be filled (up to 2000 ms) */
-        res = PylonWaitObjectWait(hWait, 2000, &isReady);
+        /* Wait for the next buffer to be filled (up to 3000 ms). */
+        res = PylonWaitObjectWait(hWait, 3000, &isReady);
         CHECK(res);
-        if(!isReady) {
-            /* timeout occurred */
+        if (!isReady) {
             fprintf(stderr, "Grab timeout occurred\n");
-            break; /* stop grabbing */
+            break; /* Stop grabbing. */
         }
 
         DBG("Retrieving new frame from camera\n");
 
-//        /* wait until we have free buffers */
-//        while (used_buffers >= (NUM_BUFFERS)) {
-//            fprintf(stderr, "Grabber waiting for FREE BUFFER (used: %d)\n", used_buffers);
-//            usleep(10000);
-//        }
-
-        /* since the wait operation was successful, the result of at least
-           one grab operation is available, retrieve it */
+        /* Since the wait operation was successful, the result of at least
+           one grab operation is available, retrieve it. */
         res = PylonStreamGrabberRetrieveResult(hGrabber, &grabResult,
             &isReady);
         CHECK(res);
-        if(!isReady) {
-            /* should never come here... */
+        if (!isReady) {
             fprintf(stderr, "Failed to retrieve a grab result\n");
-            break;
+            break; /* Stop grabbing. */
         }
 
-        /* get the buffer index from the context information */
+        /* Get the buffer index from the context information. */
         bufferIndex = (size_t) grabResult.Context;
 
-        /* check to see if the image was grabbed successfully */
-        if(grabResult.Status == Grabbed) {
+        /* Check to see if the image was grabbed successfully. */
+        if (grabResult.Status == Grabbed) {
 
             DBG("Successfully grabbed frame to buffer:%d\n", bufferIndex);
 
             //unsigned char* buffer;
             //buffer = (unsigned char*) grabResult.pBuffer;
-            //getMinMax(buffer, grabResult.SizeX, grabResult.SizeY, &min, &max);
+            //get_min_max(buffer, grabResult.SizeX, grabResult.SizeY, &min, &max);
             //printf("Min. gray value = %3u, Max. gray value = %3u\n", min, max);
-
-
-            //current_buffer_index = bufferIndex;
 
             struct timeval tv;
             gettimeofday(&tv, 0);
-            video_frame_t* image = malloc(sizeof(video_frame_t));
-            image->number = ++frameNumGrabbed;
-            image->timestamp = tv;
-            image->width = grabResult.SizeX;
-            image->height = grabResult.SizeY;
-            image->size = payloadSize;
-            image->buffer = bufferIndex;
-            image->data = buffers[bufferIndex];
+            video_frame_t* frame = malloc(sizeof(video_frame_t));
+            frame->number = ++frameNumGrabbed;
+            frame->timestamp = tv;
+            frame->width = grabResult.SizeX;
+            frame->height = grabResult.SizeY;
+            frame->size = payloadSize;
+            frame->buffer = bufferIndex;
+            frame->data = buffers[bufferIndex];
 
             pthread_mutex_lock(&encode_queue_mutex);
-            if(encodeQueue == NULL) {
+            if (encodeQueue == NULL) {
                 encodeQueue = malloc(sizeof(node_t));
                 if (encodeQueue == NULL) {
-                    fprintf(stderr, "Out of memory!\n");
+                    fprintf(stderr, "ERROR: Grabber memory alloc failed!\n");
+                    free(frame);
                     exit(EXIT_FAILURE);
                 }
-                encodeQueue->ptr = image;
+                encodeQueue->ptr = frame;
                 encodeQueue->next = NULL;
             } else {
-                push(encodeQueue, image);
+                push(encodeQueue, frame);
             }
-
             ++used_buffers;
-
-//            print_encode_queue(encodeQueue);
-//            frameWidths[bufferIndex] = grabResult.SizeX;
-//            frameHeights[bufferIndex] = grabResult.SizeY;
-//            DBG("Current buffer index: %d\n", bufferIndex);
             pthread_mutex_unlock(&encode_queue_mutex);
             pthread_cond_signal(&encode_cond);
-
-//            fprintf(stderr, "Used buffers: %d\n", used_buffers);
 
         } else if (grabResult.Status == Failed) {
             fprintf(stderr, "Frame wasn't grabbed successfully. Error code = 0x%08X, bufs=%d\n",
                 grabResult.ErrorCode, used_buffers);
 
-            /* requeue the buffer to be filled again */
+            /* Requeue the buffer to be filled again. */
             res = PylonStreamGrabberQueueBuffer(hGrabber, grabResult.hBuffer,
                 (void*) bufferIndex);
             CHECK(res);
         }
-
-        /* requeue the buffer to be filled again */
-//        res = PylonStreamGrabberQueueBuffer(hGrabber, grabResult.hBuffer,
-//            (void*) bufferIndex);
-//        CHECK(res);
     }
 
     IPRINT("leaving input thread, calling cleanup function now\n");
@@ -900,66 +870,77 @@ void* worker_thread(void *arg)
 }
 
 /******************************************************************************
-Description.: this functions cleans up allocated resources
+Description.: clean up resources allocated by a grabber worker thread
 Input Value.: arg is unused
 Return Value: -
 ******************************************************************************/
-void worker_cleanup(void *arg)
+void worker_grabber_cleanup(void *arg)
 {
     static unsigned char first_run = 1;
+    int i;
 
-    if(!first_run) {
-        DBG("already cleaned up ressources\n");
+    if (!first_run) {
+        DBG("Already cleaned up grabber resources\n");
         return;
     }
 
     first_run = 0;
-    DBG("cleaning up resources allocated by input thread\n");
+    DBG("Cleaning up resources allocated by grabber thread\n");
 
-    /* stop the camera */
+    /* Stop the camera. */
     res = PylonDeviceExecuteCommandFeature(hDev, "AcquisitionStop");
     CHECK(res);
 
-    /* issue a cancel call to ensure that all pending buffers are put into the
-       stream grabber's output queue */
+    /* Issue a cancel call to ensure that all pending buffers are put into the
+       stream grabber's output queue. */
     res = PylonStreamGrabberCancelGrab(hGrabber);
     CHECK(res);
 
-    /* the buffers can now be retrieved from the stream grabber */
+    /* The buffers can now be retrieved from the stream grabber. */
     do {
         res = PylonStreamGrabberRetrieveResult(hGrabber, &grabResult, &isReady);
         CHECK(res);
     } while (isReady);
 
-    /* deregister buffers and free the memory */
+    /* Deregister buffers and free the memory. */
     pthread_mutex_lock(&encode_queue_mutex);
-    for(i = 0; i < NUM_BUFFERS; ++i) {
+    for (i = 0; i < NUM_BUFFERS; ++i) {
         res = PylonStreamGrabberDeregisterBuffer(hGrabber, bufHandles[i]);
         CHECK(res);
         free(buffers[i]);
     }
-    pthread_mutex_lock(&encode_queue_mutex);
+    pthread_mutex_unlock(&encode_queue_mutex);
 
-    /* release grabbing related resources */
+    /* Release grabbing related resources. */
     res = PylonStreamGrabberFinishGrab(hGrabber);
     CHECK(res);
 
-    /* close the stream grabber */
+    /* Close the stream grabber. */
     res = PylonStreamGrabberClose(hGrabber);
     CHECK(res);
 
-    /* close and release the pylon device */
+    /* Close and release the pylon device. */
     res = PylonDeviceClose(hDev);
     CHECK(res);
 
-    /* destroy the device */
+    /* Destroy the device. */
     res = PylonDestroyDevice(hDev);
     CHECK(res);
 
-    /* shut down the pylon runtime system */
+    /* Shut down the pylon runtime system. */
     PylonTerminate();
 
+    /* Destroy encode queue. */
+    pthread_mutex_lock(&encode_queue_mutex);
     destroy(&encodeQueue);
+    encodeQueue = NULL;
+    pthread_mutex_unlock(&encode_queue_mutex);
+
+    /* Destroy buffer release queue. */
+    pthread_mutex_lock(&release_buf_queue_mutex);
+    destroy(&releaseBufQueue);
+    releaseBufQueue = NULL;
+    pthread_mutex_unlock(&release_buf_queue_mutex);
 }
 
 /******************************************************************************
@@ -969,131 +950,142 @@ Return Value: NULL
 ******************************************************************************/
 void *worker_encoder(void *arg)
 {
-    int encoded_size = -1;
-    clock_t t;
-    struct timespec tstart;
-    struct timespec tstop;
-    video_frame_t *image = NULL;
     encoder_config_t *enc = (encoder_config_t*)arg;
     DBG("Allocating resources for encoder thread %d\n", enc->index);
 
+    video_frame_t *frame = NULL;
+    int encoded_size = -1;
+    clock_t walltime;
+    struct timespec tstart;
+    struct timespec tstop;
     struct jpeg_compress_struct cinfo;
     struct jpeg_error_mgr jerr;
 
-    create_compress(&cinfo, &jerr);
-
     /* Set cleanup handler to cleanup allocated resources. */
     pthread_cleanup_push(worker_encoder_cleanup, arg);
+
+    /* Create JPEG compress struct. We will reuse these in this thread. */
+    create_compress(&cinfo, &jerr);
 
     /* Loop until worker is stopped. */
     while (!pglobal->stop) {
 
         /* Get a raw image from the encode queue. If queue is empty, wait. */
         encoded_size = -1;
-        image = NULL;
+        frame = NULL;
         pthread_mutex_lock(&encode_queue_mutex);
         if (encodeQueue == NULL) {
             DBG("Encoder %d is waiting for image from grabber\n", enc->index);
             pthread_cond_wait(&encode_cond, &encode_queue_mutex);
             if (encodeQueue == NULL) {
-                fprintf(stderr, "ERROR: Image signaled but queue is empty!\n");
+                fprintf(stderr, "ERROR: Frame signaled but queue is empty!\n");
                 pthread_mutex_unlock(&encode_queue_mutex);
-                continue; /* Maybe the next image works? */
+                continue; /* Maybe the next frame works... */
             }
         }
 
-        image = pop(&encodeQueue); /* Gain ownership of image object. */
+        frame = pop(&encodeQueue); /* Gain ownership of frame object. */
         print_encode_queue(encodeQueue);
         pthread_mutex_unlock(&encode_queue_mutex);
 
         /* Notify which image we picked from the queue (for debugging). */
-        if (image != NULL) {
-            DBG("Encoder %d now compressing image from buffer %d\n",
-                enc->index, image->buffer);
+        if (frame != NULL) {
+            DBG("Encoder %d now compressing frame from buffer %d\n",
+                enc->index, frame->buffer);
         } else {
-            fprintf(stderr, "ERROR: Image to encode is NULL!\n");
-            continue;
+            fprintf(stderr, "ERROR: Frame to encode is NULL!\n");
+            continue; /* Maybe the next frame works... */
         }
 
-        /* Allocate memory for encode buffer. */
+        /* Now we know frame size; allocate memory for encode buffer. */
         if (enc->buffer == NULL) {
-            enc->buffer = malloc(image->size);
+            enc->buffer = malloc(frame->size);
             if (enc->buffer == NULL) {
                 fprintf(stderr, "ERROR: Encoder memory alloc failed!\n");
-                free(image);
+                free(frame);
                 exit(EXIT_FAILURE);
             } else {
                 DBG("Encoder %d allocated %d bytes for encoder buffer %p\n",
-                    enc->index, image->size, (void*)&enc->buffer);
+                    enc->index, frame->size, (void*)&enc->buffer);
             }
         }
 
         /* Encode raw image to JPEG format into encode buffer. */
-        t = clock();
+        /* Performance: wall time = elapsed wall time during encoding. */
+        /* Perforamnce: thread time = time that encoder thread run on CPU. */
+        walltime = clock();
         clock_gettime(CLOCK_THREAD_CPUTIME_ID, &tstart);
-//        encoded_size = compress_yuyv_to_jpeg(image, enc->buffer,
-//            image->size, 60, &cinfo);
-        encoded_size = compress_rgb24_to_jpeg(image, enc->buffer,
-            image->size, 50, &cinfo);
-        t = clock() - t;
+//        encoded_size = compress_yuyv_to_jpeg(frame, enc->buffer,
+//            frame->size, 60, &cinfo);
+        encoded_size = compress_rgb24_to_jpeg(frame, enc->buffer,
+            frame->size, 50, &cinfo);
         clock_gettime(CLOCK_THREAD_CPUTIME_ID, &tstop);
-
+        walltime = clock() - walltime;
         DBG("Encoder %d completed encoding\n", enc->index);
 
         /* Requeue the grabber buffer to be filled again. */
+        video_frame_t* releaseFrame = malloc(sizeof(video_frame_t));
+        if (releaseFrame == NULL) {
+            fprintf(stderr, "ERROR: Encoder memory alloc failed!\n");
+            free(frame);
+            exit(EXIT_FAILURE);
+        }
+        releaseFrame->buffer = frame->buffer; /* index of buffer to be freed. */
+        DBG("Encoder %d releasing buffer %d\n", enc->index, releaseFrame->buffer);
         pthread_mutex_lock(&release_buf_queue_mutex);
-
-        DBG("Encoder %d releasing buffer\n", enc->index);
-
-        if(releaseBufQueue == NULL) {
+        if (releaseBufQueue == NULL) {
             releaseBufQueue = malloc(sizeof(node_t));
             if (releaseBufQueue == NULL) {
-                fprintf(stderr, "Out of memory!\n");
+                fprintf(stderr, "ERROR: Encoder memory alloc failed!\n");
                 pthread_mutex_unlock(&release_buf_queue_mutex);
+                free(releaseFrame);
+                free(frame);
                 exit(EXIT_FAILURE);
             }
-            releaseBufQueue->ptr = image;
+            releaseBufQueue->ptr = releaseFrame;
             releaseBufQueue->next = NULL;
         } else {
-            push(releaseBufQueue, image);
+            push(releaseBufQueue, releaseFrame);
         }
         pthread_mutex_unlock(&release_buf_queue_mutex);
-
-        DBG("Encoder %d released buffer\n", enc->index);
+        DBG("Encoder %d released buffer %d\n", enc->index, frame->buffer);
 
         /* Reserve output object. */
         pthread_mutex_lock(&pglobal->in[plugin_number].db);
 
-        /* Check if our frame is the next one to be sent, else wait. */
+        /* Ensure correct frame order: if our frame is not the next, wait. */
         int delay = 10000;
         int total_delay = 0;
-//        while (image->number != 0 && image->number > frameNumLastSent + 1) {
-//
-//            /* Release output object to give chance to other threads. */
-//            pthread_mutex_unlock(&pglobal->in[plugin_number].db);
-//
-//            /* Wait a moment so other thread can send its frame. */
-//            usleep(delay);
-//            total_delay += delay;
-//
-//            /* Reserve output object and check again... */
-//            pthread_mutex_lock(&pglobal->in[plugin_number].db);
-//        }
-//        if (total_delay > 0) {
-//            fprintf(stderr, "Encoder %d delayed sending frame %d for %d ms\n",
-//                enc->index, image->number, total_delay / 1000);
-//        }
+#ifdef ENSURE_CORRECT_FRAME_ORDER
+        while (frame->number != 0 && frame->number > frameNumLastSent + 1) {
+
+            /* Release output object to give chance to other threads. */
+            pthread_mutex_unlock(&pglobal->in[plugin_number].db);
+
+            /* Wait a moment so other threads can send their frames. */
+            usleep(delay);
+            total_delay += delay;
+
+            /* Reserve output object and check again... */
+            pthread_mutex_lock(&pglobal->in[plugin_number].db);
+        }
+        if (total_delay > 0) {
+            fprintf(stderr, "Encoder %d delayed sending frame %d for %d ms\n",
+                enc->index, frame->number, total_delay / 1000);
+        }
+#endif
 
         /* Allocate memory for output buffer. */
         if (pglobal->in[plugin_number].buf == NULL) {
-            pglobal->in[plugin_number].buf = malloc(image->size);
+            pglobal->in[plugin_number].buf = malloc(frame->size);
             if (pglobal->in[plugin_number].buf == NULL) {
-                fprintf(stderr, "ERROR: Plugin memory alloc failed!\n");
-                free(image);
+                pthread_mutex_unlock(&pglobal->in[plugin_number].db);
+                fprintf(stderr, "ERROR: Encoder memory alloc failed!\n");
+                free(frame);
                 exit(EXIT_FAILURE);
             } else {
                 DBG("Encoder %d allocated %d bytes for output buffer\n",
-                    enc->index, image->size);
+                    enc->index, frame->size);
             }
         }
 
@@ -1102,41 +1094,41 @@ void *worker_encoder(void *arg)
         pglobal->in[plugin_number].size = encoded_size;
 
         /* Set timestamp. */
-        pglobal->in[plugin_number].timestamp = image->timestamp;
-
-        /* Update last sent frame number. */
-        frameNumLastSent = image->number;
+        pglobal->in[plugin_number].timestamp = frame->timestamp;
 
         /* Signal fresh image to output plugins. */
         pthread_cond_broadcast(&pglobal->in[plugin_number].db_update);
 
+        /* Update last sent frame number. */
+        frameNumLastSent = frame->number;
+
         /* Release output object. */
         pthread_mutex_unlock(&pglobal->in[plugin_number].db);
 
-        double time_taken = ((double)t)/CLOCKS_PER_SEC; /* in seconds */
+        double time_taken = ((double)walltime) / CLOCKS_PER_SEC; /* in sec */
         struct timespec time_thread;
         timespec_diff(&tstart, &tstop, &time_thread);
-        printf("Encoder %d: buf=%d fr=%d time=%d.%d w_delta=%f, t_delta=%f, ratio=%d/%d=%2.1f%%\n",
-            enc->index, image->buffer, image->number, image->timestamp.tv_sec,
-            image->timestamp.tv_usec, time_taken, time_thread.tv_sec +
+        printf("Encoder %d: buf=%d fr=%d ts=%d.%d w_delta=%f, t_delta=%f, ratio=%d/%d=%2.1f%%\n",
+            enc->index, frame->buffer, frame->number, frame->timestamp.tv_sec,
+            frame->timestamp.tv_usec, time_taken, time_thread.tv_sec +
             (float)time_thread.tv_nsec / 1000000000L, encoded_size,
-            image->size, 100.0f * encoded_size / image->size);
+            frame->size, 100.0f * encoded_size / frame->size);
 
         /* Clean up. */
-        /*
-        free(image);
-        image = NULL;*/
-        /*free(enc->buffer);
+        free(frame);
+        frame = NULL;
+#ifdef ALLOW_FRAME_SIZE_CHANGE_DURING_STREAMING
+        free(enc->buffer);
         enc->buffer = NULL;
-        DBG("Encoder %d freed encoder buffer\n", enc->index);*/
-        /* above: no need to free buffer if next image is same size! */
-
-        //if (delay != 0) usleep(1000 * delay);
+        DBG("Encoder %d freed encoder buffer\n", enc->index);
+        /* above: no need to free encoder buffer if next frame is same size! */
+#endif
     }
 
+    // Destroy JPEG compress struct.
     destroy_compress(&cinfo);
 
-    IPRINT("leaving input thread, calling cleanup function now\n");
+    IPRINT("Leaving encoder thread %d, calling cleanup function now\n", enc->index);
     pthread_cleanup_pop(1);
 
     return NULL;
@@ -1182,7 +1174,7 @@ Description.: print the error msg for the last failed call, and exit
 Input Value.: error code
 Return Value: -
 ******************************************************************************/
-void printErrorAndExit(GENAPIC_RESULT errc)
+void print_error_and_exit(GENAPIC_RESULT errc)
 {
     char *errMsg;
     size_t length;
@@ -1211,7 +1203,7 @@ Description.: return min and max gray value of a monochrome 8 bit image
 Input Value.: image, image width & height, min and max values (on return)
 Return Value: -
 ******************************************************************************/
-void getMinMax(const unsigned char* pImg, int32_t width, int32_t height,
+void get_min_max(const unsigned char* pImg, int32_t width, int32_t height,
                unsigned char* pMin, unsigned char* pMax)
 {
     unsigned char min = 255;
@@ -1248,4 +1240,3 @@ void timespec_diff(struct timespec *start, struct timespec *stop,
         result->tv_nsec = stop->tv_nsec - start->tv_nsec;
     }
 }
-
