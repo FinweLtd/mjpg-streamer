@@ -192,7 +192,7 @@ void print_encode_queue(node_t *head) {
     while(current != NULL) {
         struct image_config* image = (struct image_config*) current->ptr;
         DBG("frame=%d, width=%d, height=%d, size=%d\n, buffer=%d, ptr=%p\n",
-            image->frame, image->width, image->height,
+            image->number, image->width, image->height,
             image->size, image->buffer, (void*)&image->data);
         current = current->next;
     }
@@ -775,7 +775,7 @@ void* worker_thread(void *arg)
 
         while(releaseBufQueue != NULL) {
             DBG("About to pop from grabber buffer...\n");
-            image_config_t *img = pop(&releaseBufQueue);
+            video_frame_t *img = pop(&releaseBufQueue);
             DBG("Popped from grabber buffer %d\n", img->buffer);
             res = PylonStreamGrabberQueueBuffer(hGrabber, bufHandles[img->buffer],
                 (void*) img->buffer);
@@ -844,8 +844,8 @@ void* worker_thread(void *arg)
 
             struct timeval tv;
             gettimeofday(&tv, 0);
-            image_config_t* image = malloc(sizeof(image_config_t));
-            image->frame = ++frameNumGrabbed;
+            video_frame_t* image = malloc(sizeof(video_frame_t));
+            image->number = ++frameNumGrabbed;
             image->timestamp = tv;
             image->width = grabResult.SizeX;
             image->height = grabResult.SizeY;
@@ -973,7 +973,7 @@ void *worker_encoder(void *arg)
     clock_t t;
     struct timespec tstart;
     struct timespec tstop;
-    image_config_t *image = NULL;
+    video_frame_t *image = NULL;
     encoder_config_t *enc = (encoder_config_t*)arg;
     DBG("Allocating resources for encoder thread %d\n", enc->index);
 
@@ -1033,7 +1033,7 @@ void *worker_encoder(void *arg)
         clock_gettime(CLOCK_THREAD_CPUTIME_ID, &tstart);
 //        encoded_size = compress_yuyv_to_jpeg(image, enc->buffer,
 //            image->size, 60, &cinfo);
-        encoded_size = compress_rgb8_to_jpeg(image, enc->buffer,
+        encoded_size = compress_rgb24_to_jpeg(image, enc->buffer,
             image->size, 50, &cinfo);
         t = clock() - t;
         clock_gettime(CLOCK_THREAD_CPUTIME_ID, &tstop);
@@ -1067,7 +1067,7 @@ void *worker_encoder(void *arg)
         /* Check if our frame is the next one to be sent, else wait. */
         int delay = 10000;
         int total_delay = 0;
-//        while (image->frame != 0 && image->frame > frameNumLastSent + 1) {
+//        while (image->number != 0 && image->number > frameNumLastSent + 1) {
 //
 //            /* Release output object to give chance to other threads. */
 //            pthread_mutex_unlock(&pglobal->in[plugin_number].db);
@@ -1081,7 +1081,7 @@ void *worker_encoder(void *arg)
 //        }
 //        if (total_delay > 0) {
 //            fprintf(stderr, "Encoder %d delayed sending frame %d for %d ms\n",
-//                enc->index, image->frame, total_delay / 1000);
+//                enc->index, image->number, total_delay / 1000);
 //        }
 
         /* Allocate memory for output buffer. */
@@ -1105,7 +1105,7 @@ void *worker_encoder(void *arg)
         pglobal->in[plugin_number].timestamp = image->timestamp;
 
         /* Update last sent frame number. */
-        frameNumLastSent = image->frame;
+        frameNumLastSent = image->number;
 
         /* Signal fresh image to output plugins. */
         pthread_cond_broadcast(&pglobal->in[plugin_number].db_update);
@@ -1117,7 +1117,7 @@ void *worker_encoder(void *arg)
         struct timespec time_thread;
         timespec_diff(&tstart, &tstop, &time_thread);
         printf("Encoder %d: buf=%d fr=%d time=%d.%d w_delta=%f, t_delta=%f, ratio=%d/%d=%2.1f%%\n",
-            enc->index, image->buffer, image->frame, image->timestamp.tv_sec,
+            enc->index, image->buffer, image->number, image->timestamp.tv_sec,
             image->timestamp.tv_usec, time_taken, time_thread.tv_sec +
             (float)time_thread.tv_nsec / 1000000000L, encoded_size,
             image->size, 100.0f * encoded_size / image->size);

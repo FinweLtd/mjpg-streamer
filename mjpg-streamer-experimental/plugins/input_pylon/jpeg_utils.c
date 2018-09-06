@@ -1,11 +1,17 @@
 /*******************************************************************************
-# Linux-UVC streaming input-plugin for MJPG-streamer                           #
+# Basler Pylon input-plugin for MJPG-streamer                                  #
 #                                                                              #
-# This package work with the Logitech UVC based webcams with the mjpeg feature #
+# This plugin works with Basler Pylon based machine vision cameras             #
+# and allows encoding their raw image data to MJPG stream.                     #
 #                                                                              #
-#   Orginally Copyright (C) 2005 2006 Laurent Pinchart &&  Michel Xhaard       #
+# The plugin is based on                                                       #
+# -mjpeg-streamer input_uvc plugin:                                            #
+#   Originally Copyright (C) 2005 2006 Laurent Pinchart &&  Michel Xhaard      #
 #   Modifications Copyright (C) 2006  Gabriel A. Devenyi                       #
 #   Modifications Copyright (C) 2007  Tom Stöveken                             #
+# -Pylon software suite's sample "OverlappedGrab" (C) 2018 Basler              #
+#                                                                              #
+# Integration and modifications Copyright (C) 2018  Tapani Rantakokko / Finwe  #
 #                                                                              #
 # This program is free software; you can redistribute it and/or modify         #
 # it under the terms of the GNU General Public License as published by         #
@@ -56,8 +62,9 @@ METHODDEF(void) init_destination(j_compress_ptr cinfo)
 {
     mjpg_dest_ptr dest = (mjpg_dest_ptr) cinfo->dest;
 
-    /* Allocate the output buffer --- it will be released when done with image */
-    dest->buffer = (JOCTET *)(*cinfo->mem->alloc_small)((j_common_ptr) cinfo, JPOOL_IMAGE, OUTPUT_BUF_SIZE * sizeof(JOCTET));
+    /* Allocate the output buffer - it will be released when done with image */
+    dest->buffer = (JOCTET *)(*cinfo->mem->alloc_small)((j_common_ptr) cinfo,
+        JPOOL_IMAGE, OUTPUT_BUF_SIZE * sizeof(JOCTET));
 
     *(dest->written) = 0;
 
@@ -107,12 +114,15 @@ Input Value.: buffer is the already allocated buffer memory that will hold
               the compressed picture. "size" is the size in bytes.
 Return Value: -
 ******************************************************************************/
-GLOBAL(void) dest_buffer(j_compress_ptr cinfo, unsigned char *buffer, int size, int *written)
+GLOBAL(void) dest_buffer(j_compress_ptr cinfo, unsigned char *buffer,
+    int size, int *written)
 {
     mjpg_dest_ptr dest;
 
     if(cinfo->dest == NULL) {
-        cinfo->dest = (struct jpeg_destination_mgr *)(*cinfo->mem->alloc_small)((j_common_ptr) cinfo, JPOOL_PERMANENT, sizeof(mjpg_destination_mgr));
+        cinfo->dest = (struct jpeg_destination_mgr *)(*cinfo->mem->alloc_small)
+            ((j_common_ptr) cinfo, JPOOL_PERMANENT,
+            sizeof(mjpg_destination_mgr));
     }
 
     dest = (mjpg_dest_ptr) cinfo->dest;
@@ -125,14 +135,15 @@ GLOBAL(void) dest_buffer(j_compress_ptr cinfo, unsigned char *buffer, int size, 
     dest->written = written;
 }
 
-
-void create_compress(struct jpeg_compress_struct *cinfo, struct jpeg_error_mgr *jerr) {
+/******************************************************************************
+Description.: Create compress struct.
+Input Value.: jpeg compress and error structs to initializes
+Return Value: -
+******************************************************************************/
+void create_compress(struct jpeg_compress_struct *cinfo,
+        struct jpeg_error_mgr *jerr) {
     cinfo->err = jpeg_std_error(jerr);
     jpeg_create_compress(cinfo);
-}
-
-void destroy_compress(struct jpeg_compress_struct *cinfo) {
-    jpeg_destroy_compress(cinfo);
 }
 
 /******************************************************************************
@@ -142,61 +153,39 @@ Description.: yuv2jpeg function is based on compress_yuyv_to_jpeg written by
               YUYV data to JPEG. Most other implementations use the
               "jpeg_stdio_dest" from libjpeg, which can not store compressed
               pictures to memory instead of a file.
-Input Value.: image structure from own .h, destination buffer and buffersize
+Input Value.: video frame struct, destination buffer and buffersize
               the buffer must be large enough, no error/size checking is done!
 Return Value: the buffer will contain the compressed data
 ******************************************************************************/
-int compress_yuyv_to_jpeg(image_config_t *img, unsigned char *buffer, int size, int quality,
-        struct jpeg_compress_struct *cinfo)
+int compress_yuyv_to_jpeg(video_frame_t *frame, unsigned char *buffer,
+        int size, int quality, struct jpeg_compress_struct *cinfo)
 {
-//    struct jpeg_compress_struct cinfo;
-//    struct jpeg_error_mgr jerr;
     JSAMPROW row_pointer[1];
     unsigned char *line_buffer, *yuyv;
     int z;
-    /*static int written;*/
     int written;
 
-//    DBG("compress_yuyv_to_jpeg 1\n");
+    line_buffer = calloc(frame->width * 3, 1);
+    yuyv = frame->data;
 
-    line_buffer = calloc(img->width * 3, 1);
-    yuyv = img->data;
-
-//    DBG("compress_yuyv_to_jpeg 2\n");
-
-//    cinfo.err = jpeg_std_error(&jerr);
-//    jpeg_create_compress(&cinfo);
-    /* jpeg_stdio_dest (&cinfo, file); */
     dest_buffer(cinfo, buffer, size, &written);
 
-//    DBG("compress_yuyv_to_jpeg 3\n");
-
-    cinfo->image_width = img->width;
-    cinfo->image_height = img->height;
+    cinfo->image_width = frame->width;
+    cinfo->image_height = frame->height;
     cinfo->input_components = 3;
     cinfo->in_color_space = JCS_RGB;
-
-//    DBG("compress_yuyv_to_jpeg 4\n");
 
     jpeg_set_defaults(cinfo);
     jpeg_set_quality(cinfo, quality, TRUE);
 
-//    DBG("compress_yuyv_to_jpeg 5\n");
-
     jpeg_start_compress(cinfo, TRUE);
 
-//    DBG("compress_yuyv_to_jpeg 6\n");
-
-//    DBG("compress_yuyv_to_jpeg size: %d, %d\n", im->width, im->height);
-
     z = 0;
-    while(cinfo->next_scanline < img->height) {
+    while(cinfo->next_scanline < frame->height) {
         int x;
         unsigned char *ptr = line_buffer;
 
-//        DBG("compress_yuyv_to_jpeg 6.1: %d\n", cinfo.next_scanline);
-
-        for(x = 0; x < img->width; x++) {
+        for(x = 0; x < frame->width; x++) {
             int r, g, b;
             int y, u, v;
 
@@ -221,52 +210,41 @@ int compress_yuyv_to_jpeg(image_config_t *img, unsigned char *buffer, int size, 
             }
         }
 
-//        DBG("compress_yuyv_to_jpeg 6.2\n");
-
         row_pointer[0] = line_buffer;
         jpeg_write_scanlines(cinfo, row_pointer, 1);
-
-//        DBG("compress_yuyv_to_jpeg 6.3\n");
     }
 
-//    DBG("compress_yuyv_to_jpeg 7\n");
-
     jpeg_finish_compress(cinfo);
-//    jpeg_destroy_compress(&cinfo);
-
-//    DBG("compress_yuyv_to_jpeg 8\n");
 
     free(line_buffer);
-
-//    DBG("compress_yuyv_to_jpeg 9\n");
 
     return (written);
 }
 
 /******************************************************************************
-Description.: rgb82jpeg function is based on compress_yuyv_to_jpeg written by
-              Gabriel A. Devenyi.
+Description.: rgb24_to_jpeg function is based on compress_yuyv_to_jpeg written
+              by Gabriel A. Devenyi.
               It uses the destination manager implemented above to compress
-              RGB8 data to JPEG. Most other implementations use the
+              RGB24 data to JPEG. Most other implementations use the
               "jpeg_stdio_dest" from libjpeg, which can not store compressed
               pictures to memory instead of a file.
-Input Value.: image structure from own .h, destination buffer and buffersize
+Input Value.: video frame struct, destination buffer and buffersize
               the buffer must be large enough, no error/size checking is done!
 Return Value: the buffer will contain the compressed data
 ******************************************************************************/
-int compress_rgb8_to_jpeg(image_config_t *img, unsigned char *buffer, int size, int quality,
-        struct jpeg_compress_struct *cinfo)
+int compress_rgb24_to_jpeg(video_frame_t *frame, unsigned char *buffer,
+        int size, int quality, struct jpeg_compress_struct *cinfo)
 {
     JSAMPROW row_pointer[1];
     int written;
     int row_stride;
 
-    row_stride = img->width * 3;
+    row_stride = frame->width * 3;
 
     dest_buffer(cinfo, buffer, size, &written);
 
-    cinfo->image_width = img->width;
-    cinfo->image_height = img->height;
+    cinfo->image_width = frame->width;
+    cinfo->image_height = frame->height;
     cinfo->input_components = 3;
     cinfo->in_color_space = JCS_RGB;
 
@@ -276,11 +254,20 @@ int compress_rgb8_to_jpeg(image_config_t *img, unsigned char *buffer, int size, 
     jpeg_start_compress(cinfo, TRUE);
 
     while(cinfo->next_scanline < cinfo->image_height) {
-        row_pointer[0] = &img->data[cinfo->next_scanline * row_stride];
+        row_pointer[0] = &frame->data[cinfo->next_scanline * row_stride];
         jpeg_write_scanlines(cinfo, row_pointer, 1);
     }
 
     jpeg_finish_compress(cinfo);
 
     return (written);
+}
+
+/******************************************************************************
+Description.: Destroy compress struct.
+Input Value.: jpeg compress struct
+Return Value: -
+******************************************************************************/
+void destroy_compress(struct jpeg_compress_struct *cinfo) {
+    jpeg_destroy_compress(cinfo);
 }
