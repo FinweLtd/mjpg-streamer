@@ -11,7 +11,7 @@ endif()
 
 SET(COMPILE_DEFINITIONS -Werror -Wall)
 
-include(CheckLibraryExists) 
+include(CheckLibraryExists)
 include(CheckIncludeFiles)
 include(FeatureSummary)
 
@@ -51,7 +51,6 @@ set (MJPG_STREAMER_PLUGIN_INSTALL_PATH "lib/mjpg-streamer")
 
 find_library(JPEG_LIB jpeg)
 
-
 #
 # Input plugins
 #
@@ -62,6 +61,7 @@ add_subdirectory(plugins/input_opencv)
 add_subdirectory(plugins/input_raspicam)
 add_subdirectory(plugins/input_ptp2)
 add_subdirectory(plugins/input_uvc)
+add_subdirectory(plugins/input_pylon)
 
 #
 # Output plugins
@@ -87,6 +87,7 @@ set (CMAKE_BUILD_WITH_INSTALL_RPATH FALSE)
 set (CMAKE_INSTALL_RPATH ${CMAKE_INSTALL_PREFIX}/${MJPG_STREAMER_PLUGIN_INSTALL_PATH})
 set (CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
 
+# TRK -Wl,--no-as-needed -Wl,--enable-new-dtags -Wl,-rpath,/opt/pylon5/lib
 
 add_executable(mjpg_streamer mjpg_streamer.c
                              utils.c)
