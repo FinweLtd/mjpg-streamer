@@ -57,6 +57,17 @@ Quick instructions for Windows:
 
 <i>Note: if this is the first boot for your Odroid, it will be turned off automatically for system configuration. Press the Odroid's power button to restart the device. This time you should be greeted with a login screen.</i>
 
+First boot
+----------
+
+From now on, we expect you to login to your system either with keyboard and display, or remotely using SSH. If necessary, you can check the IP address where to SSH from your network router's DHCP device list (and perhaps assign a static IP to it in your DHCP server's settings).
+
+<i>If you are using Odroid, the default username for headless setup is "root" ("odroid" in OS image with GUI). The default password in both is "odroid". Change the password immediately using "passwd" command.</i>
+
+First, update the system:
+```bash
+sudo apt update
+```
 
 
 References
