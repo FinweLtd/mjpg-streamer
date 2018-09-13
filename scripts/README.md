@@ -273,7 +273,19 @@ sudo shutdown now
 Making the scripts survive over reboot
 --------------------------------------
 
-TODO
+Open your crontab for editing:
+```
+crontab -e
+```
+
+Navigate to the end of the file and add these lines:
+```
+@reboot /home/odroid/watchdog_powerkey.sh
+@reboot /home/odroid/start_stream.sh --watchdog
+```
+Note: replace /home/odroid with output from 'pwd' command!
+
+The first line ensures that power key is captured (optional, only add if you use this feature). The second line auto-starts streaming on boot, meaning that you can simply power-on Odroid and it will start streaming in a moment.
 
 References
 ----------
