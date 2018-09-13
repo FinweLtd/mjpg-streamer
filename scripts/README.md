@@ -88,14 +88,75 @@ If needed, also change the keyboard layout:
 sudo dpkg-reconfigure keyboard-configuration
 ```
 
-Installing mjpg-streamer
-------------------------
+Cloning mjpg-streamer source code
+---------------------------------
 
-For retrieving code from this GitHub repository, install Git client:
+Before retrieving the source code, first install a client for Git version control:
 ```
 sudo apt install git
 ```
 
+Then create a directory for the source code:
+```
+cd ~
+mkdir Source
+cd Source
+mkdir GitHub
+cd GitHub
+```
+
+Now, clone the source code from the repository to this directory:
+```
+git clone https://github.com/FinweLtd/mjpg-streamer.git
+```
+
+Installing Basler Pylon SDK
+---------------------------
+
+In order to use Basler cameras with mjpg-streamer, we need to install Basler's Pylon software suite. It is available for many platforms free of charge, including Linux on x64 and ARM architectures:
+https://www.baslerweb.com/en/products/software/pylon-linux-arm/
+
+You need to select a suitable package for your target hardware. For example, if you are using Odroid XU4, select "pylon 5.1.0 Camera Software Suite Linux ARM 32 bit hardfloat - Debian Installer Package".
+
+<i>Since Basler requires that all downloaders provide their name & email address and accept their terms, we don't provide a direct download link here. Once you have given the requested information, you can see the download link (right click it and select Copy link address to get the full URL into Notepad or similar text editor). Either download the file with another PC and copy it to the target machine via a USB stick, or use wget as shown below.</i>
+
+To download the package directly to your target hardware:
+```
+cd ~
+mkdir Downloads
+cd Downloads
+wget [URL TO THE FILE TO DOWNLOAD]
+```
+
+Install the package:
+(Note: here we assume that it is pylon_5.1.0.12682-deb0_armhf.deb in ~/Downloads directory)
+```
+sudo apt install ./pylon_5.1.0.12682-deb0_armhf.deb
+```
+
+Pylon software suite is now installed under /opt/pylon5 directory. Let's make a quick test:
+
+1. Connect a Basler Pylon compatible camera to your target hardware, for example a Basler Pulse (we have been using model puA2500-14uc). Make sure to use a USB 3.0 port, not USB 2.0. Typically the faster 3.0 ports are marked with blue color.
+
+2. Check USB connection:
+```
+lsusb
+```
+You should see a list of devices, the one that says "Basler AG" is your camera.
+
+3. Compile a sample application:
+```
+cd /opt/pylon5/Samples/C/GenApiParam
+make
+ls
+```
+You should see a compiled program "GanApiParam", in addition to "GenApiParam.c" and "GenApiParam.o".
+
+4. Run the sample:
+```
+./GenApiParam
+```
+This should connect to your camera and print a long list of details about the current configuration of the camera.
 
 
 References
