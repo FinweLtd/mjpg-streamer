@@ -60,14 +60,30 @@ Quick instructions for Windows:
 First boot
 ----------
 
-From now on, we expect you to login to your system either with keyboard and display, or remotely using SSH. If necessary, you can check the IP address where to SSH from your network router's DHCP device list (and perhaps assign a static IP to it in your DHCP server's settings).
+From now on, we expect you to be logged in to your system either locally with keyboard and display, or remotely using SSH. If necessary, you can check the IP address where to SSH from your network router's DHCP device list (and perhaps assign a static IP to it in your DHCP settings).
 
-<i>If you are using Odroid, the default username for headless setup is "root" ("odroid" in OS image with GUI). The default password in both is "odroid". Change the password immediately using "passwd" command.</i>
+<i>If you are using Odroid, the default username for headless setup is "root" ("odroid" in OS images with GUI). The default password in both is "odroid". We recommend that you change the password immediately using "passwd" command!</i>
 
-First, update the system:
-```bash
-sudo apt update
+First, update the system (this will take a while):
 ```
+sudo apt update
+sudo apt upgrade
+sudo apt dist-upgrade
+sudo reboot
+```
+
+You can check your IP address as follows:
+```
+ip address
+```
+
+Or, if you prefer to use the older ifconfig:
+```
+sudo apt install net-tools
+ifconfig
+```
+
+
 
 
 References
