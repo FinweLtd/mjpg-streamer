@@ -158,8 +158,8 @@ You should see a compiled program "GanApiParam", in addition to "GenApiParam.c" 
 ```
 This should connect to your camera and print a long list of details about the current configuration of the camera.
 
-Compiling mjpg-streamer
------------------------
+Compiling & running mjpg-streamer
+---------------------------------
 
 Change to mjpg-streamer root directory:
 ```
@@ -192,11 +192,67 @@ Now we are ready to run mjpg-streamer:
 ./mjpg_streamer -i "input_pylon.so" -o "output_http.so -w ./www"
 ```
 
-If all goes well, mjpg-streamer starts, finds your Basler camera, connects to it, and begins streaming raw video from the camera. It also uses JPG library for encoding the raw video frames to JPG images, and HTTP output plugin for providing them clients as MJPG stream.
+If all goes well, mjpg-streamer starts, finds your Basler camera, connects to it, and begins streaming raw video from the camera. It also uses JPG library for encoding the raw video frames to JPG images, and HTTP output plugin for providing them to clients as a MJPG stream.
 
 To view the stream, open a web browser in another computer and go to http://[your target machine's IP address]:8080/?action=stream
 
 To see the usual mjpg-streamer's home page, go to http://[your target machine's IP address]:8080 
+
+Making your setup more robust
+-----------------------------
+
+There are a set of useful scripts in the same repository. Copy them to the correct place:
+```
+cd ~/Source/GitHub/mjpg-streamer/scripts
+cp *.sh ~
+cd ~
+```
+
+Check the install path:
+```
+pwd
+```
+
+Then edit the start-up script:
+```
+nano start_stream.sh
+```
+In variable MJPG_STREAMER_PATH, replace "/home/odroid/" with what you got from pwd command, for example "/root".
+
+Now you can start the stream as follows:
+```
+./start_stream.sh
+```
+(if the output from the streamer is filling the console, press CTRL+F2 to open another console)
+
+To stop the stream, there is a separate script. First, install 'killall':
+```
+sudo apt install psmisc
+```
+
+Then stop the stream:
+```
+./stop_stream.sh
+```
+
+To use a watchdog feature that automatically restarts streaming:
+```
+./start_stream.sh --watchdog
+```
+
+You can now stop the stream and see that in 5 seconds it automatically starts again! You can even unplug the camera, wait a few seconds, and plug it in again - and the stream will restart automatically. Awesome!
+
+To stop the watchdog and the stream:
+```
+killall start_stream.sh
+./stop_stream.sh
+```
+
+It is also possible to reconfigure Odroid's power key. Normally, you can press it to gracefully shutdown the system. But you can also repurpose the button for restarting the stream instead:
+
+
+
+
 
 
 References
