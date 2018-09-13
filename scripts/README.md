@@ -248,12 +248,32 @@ killall start_stream.sh
 ./stop_stream.sh
 ```
 
-It is also possible to reconfigure Odroid's power key. Normally, you can press it to gracefully shutdown the system. But you can also repurpose the button for restarting the stream instead:
+Restarting the stream with Odroid's power key
+---------------------------------------------
 
+By default, you can press the power key to gracefully shutdown the system. Headless setup will shut it down right away, GUI will ask what to do and wait 60 seconds before going down. But you can also repurpose the button for restarting the stream instead.
 
+First thing is to disable power key from the OS:
+- In GUI installation, navigate to Ubuntu desktop's Power management settings and set power key handling to "Do nothing".
+- In headless installation, TODO
 
+Check that nothing happens if you press the power key. Then run this script:
+```
+./watchdog_powerkey.sh
+```
+... and press the power key. Now it should be captured, and the stream should be stopped (if it was running). And, if the stream was started with the --watchdog switch, it will automatically start after 5 seconds.
 
+Now you can simply press the power button to restart the stream.
 
+Now that power button is repurposed, how to gracefully shutdown the system? That is the downside... you need to either pull the power plug (not recommended) or SSH to Odroid and type this:
+```
+sudo shutdown now  
+```
+
+Making the scripts survive over reboot
+--------------------------------------
+
+TODO
 
 References
 ----------
