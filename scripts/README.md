@@ -77,12 +77,24 @@ You can check your IP address as follows:
 ip address
 ```
 
-Or, if you prefer to use the older ifconfig:
+Or, if you prefer to use the older ifconfig tool:
 ```
 sudo apt install net-tools
 ifconfig
 ```
 
+If needed, also change the keyboard layout:
+```
+sudo dpkg-reconfigure keyboard-configuration
+```
+
+Installing mjpg-streamer
+------------------------
+
+For retrieving code from this GitHub repository, install Git client:
+```
+sudo apt install git
+```
 
 
 
