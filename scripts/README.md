@@ -19,30 +19,33 @@ Installing the OS
 
 <i>Note: If you use other computer hardware in place of Odroid XU4, skip this phase and install some Debian based Linux distribution, such as Ubuntu.</i>
 
-Odroid XU4 does not include a hard disk, the OS runs from a uSD card. Hence, installing an OS is as easy as burning a suitable OS image to a uSD card and plugging the card into the Odroid's uSD card slot.
+Odroid XU4 does not include a hard disk; the OS runs from a uSD card. Hence, installing an OS is as easy as burning a suitable OS image to a uSD card and plugging the card into the Odroid's uSD card slot.
+
+Ubuntu Linux OS images for Odroid XU4 can be downloaded from here:
+https://wiki.odroid.com/odroid-xu4/os_images/linux/ubuntu_4.14/ubuntu_4.14
+
+In this case we will create a headless setup, so select "Ubuntu 18.04 (20180531) (MINIMAL, BARE OS)" and download file "ubuntu-18.04-4.14-minimal-odroid-xu4-20180531.img.xz". You can also choose an image that comes with a full GUI environment.
+
+After downloading and extracting the .xz file with 7zip tool, you will get an .img file that is ready to be burned to an uSD card. We recommend to use 8GB or larger card.
+
+<b>WARNING: Burning the image to the uSD card removes ALL existing data permanently!</b>
 
 Detailed instructions for burning an OS image to an SD card:
 https://wiki.odroid.com/troubleshooting/odroid_flashing_tools
 
-Quick instructions:
+Quick instructions for Windows:
 
-WARNING: Burning the image to the uSD card removes ALL existing data permanently!
-
-1. First unzip the release package, and notice the path of the .img file
+1. First unzip the downloaded package with 7zip tool, and notice the path of the extracted .img file
 
 2. Put the uSD card into the USB SD card reader/writer
 
-3. If your uSD card contains a previous release or something else, you should
-   first remove all existing partitions, and then format the card (for example
-   to a FAT32 partition, just to make Windows recognize the card). You can use
-   Window's own Disk Management tool for this.
-   
+3. If your uSD card contains a previous release or something else, you should first remove all existing partitions, and then format the card (for example to a FAT32 partition, just to make Windows recognize the card). You can use Window's own Disk Management tool for this.
+
 4. Download and start Win32DiskImager application
 
-5. Set "Image File" to point to the .img file you unzipped from the release
+5. Set "Image File" to point to the .img file you unzipped
 
-6. Check that "Device" shows the uSD card's drive letter
-WARNING: Be very careful here - you don't want to burn the image to system disk!
+6. Check that "Device" shows the uSD card's drive letter. <b>WARNING: Be very careful here - you don't want to burn the image to system disk!</b>
 
 7. Click "Write" button to burn the image. This will take a while.
 
