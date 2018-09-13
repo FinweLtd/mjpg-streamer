@@ -51,6 +51,12 @@ Quick instructions for Windows:
 
 8. Verifying the image is recommended. Once finished, eject the uSD card.
 
+9. Put the uSD card into the Odroid's SD card slot, and check that the tiny switch is set to "uSD", not "eMMC".
+
+10. Connect Ethernet cable, USB keyboard, HDMI display, and finally 5V 4A (minimum) power source. Odroid will boot automatically.
+
+<i>Note: if this is the first boot for your Odroid, it will be turned off automatically for system configuration. Press the Odroid's power button to restart the device. This time you should be greeted with a login screen.</i>
+
 
 
 References
