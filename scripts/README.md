@@ -17,6 +17,8 @@ In this readme we'll provide instructions for setting up an Odroid XU4 based cam
 Installing the OS
 -----------------
 
+<i>Note: If you use other computer hardware in place of Odroid XU4, skip this phase and install some Debian based Linux distribution, such as Ubuntu.</i>
+
 Odroid XU4 does not include a hard disk, the OS runs from a uSD card. Hence, installing an OS is as easy as burning a suitable OS image to a uSD card and plugging the card into the Odroid's uSD card slot.
 
 Detailed instructions for burning an OS image to an SD card:
