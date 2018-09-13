@@ -158,6 +158,46 @@ You should see a compiled program "GanApiParam", in addition to "GenApiParam.c" 
 ```
 This should connect to your camera and print a long list of details about the current configuration of the camera.
 
+Compiling mjpg-streamer
+-----------------------
+
+Change to mjpg-streamer root directory:
+```
+cd ~/Source/GitHub/mjpg-streamer/mjpg-streamer-experimental
+```
+
+Install the necessary packages:
+```
+sudo apt install cmake libjpeg8-dev
+```
+
+Tell where Pylon software suite is located by modifying enviroment variables:
+```
+source /opt/pylon5/bin/pylon-setup-env.sh /opt/pylon5
+```
+
+Build mjpg-streamer and plugins:
+```
+make
+```
+(next time: run "make distclean" before "make" to clean-up first)
+
+If the program compiles without errors, you can try to run it. Buf first, check your IP address:
+```
+ip address
+```
+
+Now we are ready to run mjpg-streamer:
+```
+./mjpg_streamer -i "input_pylon.so" -o "output_http.so -w ./www"
+```
+
+If all goes well, mjpg-streamer starts, finds your Basler camera, connects to it, and begins streaming raw video from the camera. It also uses JPG library for encoding the raw video frames to JPG images, and HTTP output plugin for providing them clients as MJPG stream.
+
+To view the stream, open a web browser in another computer and go to http://[your target machine's IP address]:8080/?action=stream
+
+To see the usual mjpg-streamer's home page, go to http://[your target machine's IP address]:8080 
+
 
 References
 ----------
