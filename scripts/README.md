@@ -362,7 +362,10 @@ As mentioned in the beginning of this document, machine vision cameras provide r
 
 If one encoder thread is enough, that is it the simplest solution and should be used. With multiple encoder threads it is possible that image encoding will finish in "wrong order", e.g. frame number 123 is encoded and copied to output before 122. This can be handled by postponing copying an image that was ready early, but it causes a performance penalty. Hence, this code is currently commented out and it is possible that occasionally a frame appears in wrong order.
 
-Furthermore, we have noticed that pushing the system to its limits easily causes stability issues in the grabbing side: the system appears to work well, but suddenly encoding times increase, the grabbing buffers are not freed soon enough, and the grabber bails out because it cannot continue filling the buffers. There are more performance tuning tips in Basler's document [2], and probably room for improvement if needed.
+Furthermore, we have noticed that pushing the system to its limits easily causes stability issues in the grabbing side: the system appears to work well, but suddenly encoding times increase, the grabbing buffers are not freed soon enough, and the grabber bails out because it cannot continue filling the buffers. There are more performance tuning tips in Basler's document [2], and probably room for improvement if needed. Some ideas:
+- move from libjpeg8-dev to jpeg-turbo (unless the platform already uses turbo behind the scenes)
+- consider if performance is better when using RGB or YUV output from the camera, input_pylon.so supports both and makes the conversion if necessary but JPEG library could also take YUV input without conversion to RGB first?
+- consider implementing other optimizations recommended by Basler, such as running in triggered mode instead of free-running mode, enabling real-time priority, etc.
 
 However, with the current settings we have managed to get our use case working and stable streaming on Odroid XU4 platform - tests done so far show 12+ hours of streaming without a single restart by the watchdog or users. Longer tests are yet to be made.
 
