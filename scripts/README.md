@@ -318,6 +318,40 @@ Note: replace /home/odroid with output from 'pwd' command!
 
 The first line ensures that power key is captured (optional, only add if you use this feature). The second line auto-starts streaming on boot, meaning that you can simply power-on Odroid and it will start streaming in a moment.
 
+Tuning system performance for Basler cameras
+--------------------------------------------
+
+Basler has an excellent document that compares performance of different SBCs with their cameras [3]. The document also includes many tips for tuning the performance. Here's a few.
+
+With USB cameras, disable autosuspend (so that system does not power down the camera):
+```
+cat /sys/module/usbcore/parameters/autosuspend
+sudo echo -1 /sys/module/usbcore/parameters/autosuspend
+cat /sys/module/usbcore/parameters/autosuspend
+```
+You should see that the value changes (e.g. from '2') to '-1'.
+
+With USB cameras, enable support for large image transmission:
+```
+cat /sys/module/usbcore/parameters/usbfs_memory_mb'
+sudo sh -c 'echo 1000 > /sys/module/usbcore/parameters/usbfs_memory_mb'
+cat /sys/module/usbcore/parameters/usbfs_memory_mb'
+```
+You should see that value changes (e.g. from '16') to '1000'.
+
+To make these configurations survive over reboots, add them to your /etc/rc.local script:
+```
+sudo nano /etc/rc.local
+```
+Then add the following lines before last line 'exit 0':
+```
+echo -1 /sys/module/usbcore/parameters/autosuspend
+echo 1000 > /sys/module/usbcore/parameters/usbfs_memory_mb
+```
+
+Reboot and check with cat command that the changes survived the reboot.
+
+
 References
 ----------
 
