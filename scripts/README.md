@@ -282,7 +282,7 @@ nano watchdog_powerkey.sh
 ```
 In variable POWERKEY_CMD, replace path "/home/odroid" with output of pwd command, e.g. "/root".
 
-The same is required for the keyd handler script:
+The same is required for the key handler script:
 ```
 nano handle_powerkey.sh
 ```
