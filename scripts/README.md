@@ -351,6 +351,20 @@ echo 1000 > /sys/module/usbcore/parameters/usbfs_memory_mb
 
 Reboot and check with cat command that the changes survived the reboot.
 
+Discussion on system performance
+--------------------------------
+
+Which OS image to use? We have found that GUI image is better for development since you can install an IDE tool for modifying the source code and browsing the internet, but Xorg consumes quite a lot of CPU even if the developer isn't doing anything with it. For example, with Odroid Xorg consumes in practice all the power of one CPU core. Hence, we use GUI image for development, but headless image for production use.
+
+As mentioned in the beginning of this document, machine vision cameras provide raw video stream and hence require huge bandwidth when using higher resolutions/frame rates. One CPU core may not be enough for retrieving the images, encoding them to JPG, and serving the MJPG stream to clients. Hence, the input_pylon.so plugin for mjpg-streamer uses multiple threads:
+- 1 thread for grabbing images from Basler camera
+- 1-4 threads for encoding the images to JPG (default: 2 encoder threads)
+
+If one encoder thread is enough, that is it the simplest solution and should be used. With multiple encoder threads it is possible that image encoding will finish in "wrong order", e.g. frame number 123 is encoded and copied to output before 122. This can be handled by postponing copying an image that was ready early, but it causes a performance penalty. Hence, this code is currently commented out and it is possible that occasionally a frame appears in wrong order.
+
+Furthermore, we have noticed that pushing the system to its limits easily causes stability issues in the grabbing side: the system appears to work well, but suddenly encoding times increase, the grabbing buffers are not freed soon enough, and the grabber bails out because it cannot continue filling the buffers. There are more performance tuning tips in Basler's document [2], and probably room for improvement if needed.
+
+However, with the current settings we have managed to get our use case working and stable streaming on Odroid XU4 platform - tests done so far show 12+ hours of streaming without a single restart by the watchdog or users. Longer tests are yet to be made.
 
 References
 ----------
