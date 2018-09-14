@@ -110,6 +110,11 @@ Now, clone the source code from the repository to this directory:
 git clone https://github.com/FinweLtd/mjpg-streamer.git
 ```
 
+Later, you can get updates by writing (in the same directory):
+```
+git pull
+```
+
 Installing Basler Pylon SDK
 ---------------------------
 
@@ -255,9 +260,35 @@ By default, you can press the power key to gracefully shutdown the system. Headl
 
 First thing is to disable power key from the OS:
 - In GUI installation, navigate to Ubuntu desktop's Power management settings and set power key handling to "Do nothing".
-- In headless installation, TODO
+- In headless installation:
+```
+sudo nano /etc/systemd/logind.conf
+```
+Look for line #HandlePowerKey=[value], remove the comment char # and set "ignore" as value. The line should be:
+<i>HandlePowerKey=ingore</i>
 
-Check that nothing happens if you press the power key. Then run this script:
+Reboot computer and check that nothing happens when you press the power key.
+
+Next, install the necessary packages:
+```
+sudo apt install evtest expect
+```
+
+Edit the target action script path:
+```
+cd ~
+pwd
+nano watchdog_powerkey.sh
+```
+In variable POWERKEY_CMD, replace path "/home/odroid" with output of pwd command, e.g. "/root".
+
+The same is required for the keyd handler script:
+```
+nano handle_powerkey.sh
+```
+In line starting with "bash -c", replace path "/home/odroid" with output of pwd command, e.g. "/root".
+
+Then run this script:
 ```
 ./watchdog_powerkey.sh
 ```
@@ -265,7 +296,7 @@ Check that nothing happens if you press the power key. Then run this script:
 
 Now you can simply press the power button to restart the stream.
 
-Now that power button is repurposed, how to gracefully shutdown the system? That is the downside... you need to either pull the power plug (not recommended) or SSH to Odroid and type this:
+Now that power button is repurposed, how to gracefully shutdown the system? That is the downside... you need to either pull the power plug out (not recommended) or SSH to Odroid and type this:
 ```
 sudo shutdown now  
 ```
