@@ -43,7 +43,7 @@ You must have cmake installed. You will also probably want to have a development
 To compile input_pylon.so input plugin, you will also need to install and configure Basler Pylon software suite:
 https://www.baslerweb.com/en/sales-support/downloads/software-downloads/
 
-For instructions, see see [README.md](scripts/README.md).
+For instructions, see [README.md](scripts/README.md).
 
 Simple compilation
 ------------------
