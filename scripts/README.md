@@ -367,7 +367,7 @@ Furthermore, we have noticed that pushing the system to its limits easily causes
 - consider if performance is better when using RGB or YUV output from the camera, input_pylon.so supports both and makes the conversion if necessary but JPEG library could also take YUV input without conversion to RGB first?
 - consider implementing other optimizations recommended by Basler, such as running in triggered mode instead of free-running mode, enabling real-time priority, etc.
 
-However, with the current settings we have managed to get our use case working and stable streaming on Odroid XU4 platform - tests done so far show 12+ hours of streaming without a single restart by the watchdog or users. Longer tests are yet to be made.
+However, with the current settings we have managed to get our use case working and stable streaming on Odroid XU4 platform - tests done so far show 60+ hours of streaming without a single restart by the watchdog or users. Longer tests are yet to be made.
 
 References
 ----------
