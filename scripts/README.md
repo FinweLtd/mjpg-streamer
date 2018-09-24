@@ -369,6 +369,147 @@ Furthermore, we have noticed that pushing the system to its limits easily causes
 
 However, with the current settings we have managed to get our use case working and stable streaming on Odroid XU4 platform - tests done so far show 60+ hours of streaming without a single restart by the watchdog or users. Longer tests are yet to be made.
 
+Networking
+----------
+
+By default, Odroid's Ubuntu Linux installation assumes that DHCP is used and therefore the device's IP address can change. This makes it difficult to connect to the device via SSH or accessing the MJPG stream. A simple solution is assign a fixed IP address to it from the DHCP server's settings, but this is not always possible. Another solution is to set a fixed IP address:
+
+Ubuntu 18.04 release uses a new network configuration system - editing the traditional /etc/network/interfaces file has been replaced with netplan, which means that a) configuration file path is different b) there is no configuration file by default c) the syntax is different. Here is one way to configure a fixed IP address:
+
+First, we will create a configuration file and open an editor:
+```
+sudo nano /etc/netplan/50-cloud-init.yaml
+```
+
+Example content:
+```
+network:
+    version: 2
+    renderer: networkd
+    ethernets:
+        eth0: # Odroid's physical ethernet port
+            # DHCP assigned IP:
+            dhcp4: yes
+            # OR static IP:
+#            dhcp4: no
+#            addresses: [192.168.1.2/24]
+#            gateway4: 192.168.1.1
+#            nameservers:
+#                addresses: [192.168.1.1, 8.8.8.8, 8.8.4.4]
+        eth1: # Virtual ethernet when using USB tethering, or USB ethernet dongle
+            optional: true # do not wait for this adapter in boot
+            # DHCP assigned IP:
+            dhcp4: yes
+            # OR static IP:
+#            dhcp4: no
+#            addresses: [192.168.42.100/24]
+#            gateway4: 192.168.42.1
+#            nameservers:
+#                addresses: [192.168.42.1, 8.8.8.8, 8.8.4.4]
+```
+Warning: do not mix spaces and tabs in whitespace!
+
+Notice that the sample content contains example for both DHCP and static configuration; comment out the one that you don't need. There is also configuration for both internal Ethernet adapter (eth0) and virtual/external adapter (eth1). The latter could be for example an Ethernet dongle or a phone/tablet being used as a modem (USB Tethering mode).
+
+After creating/editing the configuration file, you must apply the changes as follows:
+```
+sudo netplan --debug apply
+```
+The --debug switch is optional and prints extra info on screen.
+
+Mobile streaming
+----------------
+
+MJPG stream requires more bandwidth than more efficient encoders such as H.264/H.265, but both Wifi and modern LTE networks do offer enough uplink bandwidth for streaming a fair quality MJPG stream. This means that a Wifi dongle or a smartphone / tablet with 4G/LTE network and SIM card can be used for providing network connection to Odroid, and hence a truly mobile MJPG streaming station is achievable. 
+
+Using a Wifi dongle is trivial, hence we discuss here how a phone/tablet could be used. In general, there are two ways to connect the devices:
+
+1) Via wired Ethernet
+
+Connect a USB-OTG adapter and USB-Ethernet adapter in sequence to your Android phone/tablet, then add a standard Ethernet cable and connect it's other end to Odroid's built-in Ethernet socket.
+
+This setup requires that the Android device has suitable Ethernet drivers built-in, else the USB Ethernet adapter cannot work. This configuration has been tested to work on many Android devices and Ethernet adapters, but not all! You just have to test.
+
+To try it out, first disable Wifi and LTE, then make the wired connection, and be sure that all devices are indeed connected and powered on. Now, Android device's notification area should so that you have a wired Ethernet connection available, and you should find this also from the device's Settings (under Connections). There you can also set a fixed IP. If you can't find the connection, try a different phone/tablet or a different USB Ethernet adapter.
+
+After testing that the wired connection works, you can enable Wifi/LTE. Just be aware that Android prefers to use wireless adapters for all new connections (and Wifi over LTE). For example, if you use a web browser for testing, you should first establish the connection to the MJPG stream from Odroid over wired connection, then enable Wifi/LTE and open another connection in a new tab to some other URL like youtube.com - this will be now routed through Wifi/LTE adapter. The existing (wired) connection to MJPG stream will not jump from wired to wireless, though. The order in which you do these steps is crucial.
+
+Finally, to access the MJPG stream from Wifi/LTE network, you must use a port forwarding app that allows directing the traffic from your Android device's Wifi/LTE adapter to wired Ethernet adapter. We have not tested this yet.
+
+2) Via USB cable
+
+In the old times before setting up a Wifi hotspot became a ubiquitous feature in mobile devices, people used to connect their laptops to Internet by using their phone as a modem - via USB cable. This feature is called USB Tethering and it is still supported in Android.
+
+Notice that in this configuration your phone/laptop acts as the USB peripheral and Odroid becomes the USB central, meaning that you can use a standard USB-to-microUSB or USB-to-USB-C cable (no need for OTG adapter - don't use it). Odroid will also beging charging your Android device, so be sure to use powerful enough power source for your Odroid (we use 5V/6A model).
+
+After making the connection, on your Android device navigate to Settings -> Connections -> Mobile Hotspot and Tethering, and activate USB tethering (grayed out when cable is not connected). Notice that this has to be done every time you re-connect the devices!
+
+Now, test the connection from your Odroid:
+```
+ping 8.8.8.8
+```
+If you are lucky, the connection works right away and Google's name server responds to ping. For example, Samsung Galaxy S7 Edge worked like this.
+
+With another device you may be less lucky. For example, with Samsung Galaxy Tab S3 (LTE) we had to go through several steps to make the connection working:
+
+Show network adapters:
+```
+ifconfig -a
+```
+You must use the -a switch to reveal also adapters that are not (yet) properly configured. When you connect the USB cable and enable USB Tethering as explained above, a new device will appear in the output (S7 Edge: usb0, Tab S3: eth1).
+
+With Tab S3 using the -a switch was crucial and revealed that eth1 adapter was there but its MAC address was not set up (00:00:00:00:00:00) and hence no IP address. Here's how to fix that:
+
+```
+sudo apt install macchanger
+macchanger -b -a eth1
+ifconfig -a
+```
+eth1 MAC address is now reasonable, and eth1 should get an IP address as well (192.168.42.xxx). Now you should be able to access the MJPG stream from your Android device, using the IP address that was given to eth1 and listed in ifconfig command output.
+
+Automate the MAC address fix as follows:
+```
+sudo nano /etc/udev/rules.d/70-usb-tethering.rules
+```
+
+Add this line (here we assume USB Tethering adapter appears as eth1):
+```
+ACTION=="add", SUBSYSTEM=="net", ENV{INTERFACE}=="eth1", RUN+="/usr/bin/macchanger -b -a eth1", OPTIONS="last_rule"
+```
+
+Now that we can view the MJPG stream via the phone/tablet browser, we must solve how to set a fixed IP to your Odroid - now the address will be different every time you plug in the USB cable and enable USB Tethering. If we enable static IP in netplan, then Odroid doesn't know what is tablet's IP (gateway, DNS, etc.). The solution is to use DHCP in netplan, but add another IP address to eth1 whenever it gets up. Here's how to do that:
+
+Create a new script for networkd-dispatcher:
+```
+sudo nano /usr/lib/networkd-dispatcher/routable.d/usb-tethering.sh
+```
+
+Add these lines:
+```
+#!/bin/bash
+ip addr add 192.168.42.100/24 dev eth1
+```
+Notice that we have selected IP address 192.168.42.100 as our fixed IP address for Odroid.
+
+Add execution rights:
+```
+chmod +x /usr/lib/networkd-dispatcher/routable.d/usb-tethering.sh
+```
+
+To test it, disable USB Tethering from your Android device, wait a moment, and enable it again. Your eth1 adapter will now get two different IP addresses (and both will work, but only one of them will be fixed address). Notice that ifconfig command is not the right tool for checking the addresses, use ip command instead:
+```
+ip addr show
+```
+
+Now you can access your MJPG stream from Android phone/tablet when using USB Tethering by using 192.168.42.100 as address. To access the stream from Wifi/LTE network as well, continue with port forwarding as explained in the next chapter.
+
+
+Port Forwarding
+---------------
+
+
+
+
 References
 ----------
 
