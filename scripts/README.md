@@ -372,7 +372,7 @@ However, with the current settings we have managed to get our use case working a
 Networking
 ----------
 
-By default, Odroid's Ubuntu Linux installation assumes that DHCP is used and therefore the device's IP address can change. This makes it difficult to connect to the device via SSH or accessing the MJPG stream. A simple solution is assign a fixed IP address to it from the DHCP server's settings, but this is not always possible. Another solution is to set a fixed IP address:
+By default, Odroid's Ubuntu Linux installation assumes that DHCP is used and therefore the device's IP address can change. This makes it difficult to connect to the device via SSH or accessing the MJPG stream. A simple solution is to assign a fixed IP address to it from the DHCP server's settings, but this is not always possible. Another solution is to set a fixed IP address:
 
 Ubuntu 18.04 release uses a new network configuration system - editing the traditional /etc/network/interfaces file has been replaced with netplan, which means that a) configuration file path is different b) there is no configuration file by default c) the syntax is different. Here is one way to configure a fixed IP address:
 
@@ -501,11 +501,40 @@ To test it, disable USB Tethering from your Android device, wait a moment, and e
 ip addr show
 ```
 
-Now you can access your MJPG stream from Android phone/tablet when using USB Tethering by using 192.168.42.100 as address. To access the stream from Wifi/LTE network as well, continue with port forwarding as explained in the next chapter.
-
+Now you can access your MJPG stream from Android phone/tablet via USB Tethering by using 192.168.42.100 as Odroid's IP address. To access the stream from Wifi/LTE network as well, continue with port forwarding as explained in the next chapter.
 
 Port Forwarding
 ---------------
+
+When Odroid is connected to network via a Wifi/LTE router (or via phone/tablet in USB Tethering mode), it will get an IP address from a different subnet (NAT). This means that although Odroid can communicate with the outside world, it is not possible to do it the other way around - you cannot SSH to Odroid from the WAN side of the network, or view the MJPG stream.
+
+The solution is to use port forwarding: To connect to Odroid from WAN, you will use the router's own WAN IP address (or phone/tablet WAN IP address in USB Tethering mode), and select a port number. In addition, you must forward the traffic from this port to an IP address (and port) in the subnet, this will be your Odroid's IP and the port number that you use in mjpg-streamer (default: 8080). Each Wifi/LTE router has its own configuration web UI, so instructions are not given here - but this should be easy to find by looking at "port forwarding".
+
+If you are using a phone/tablet in USB Tethering mode, things get more complicated. Android does not have port forwarding feature built-in, and you must install an app for this. However, the typical use case is that user is running a server on his/her phone (such as Minecraft server) and wants to forward Wifi/LTE port to this internal server port - this is not enough here; we need to forward the inbound traffic from Wifi/LTE to a different device (Odroid) via USB Tethering.
+
+We have tested that at least this open source application allows configuring port forwarding on Android correctly:
+https://github.com/elixsr/FwdPortForwardingApp
+
+The app *should* be available on Google Play, but we couldn't find it anymore and had to compile it from source.
+
+Here are step-by-step instructions:
+- Compile, install, and start port forwarding app "Fwd"
+- Create a new port forward configuration:
+```
+Title=MJPG video stream
+Protocol=TCP
+From=wlan0   8080            (=wlan0 for Wifi / rmnet0 or similar for LTE, port number you can select freely)
+Target=192.168.42.100   8080 (=Odroid's IP and mjpg-streamer port)
+```
+- Save configuration and tap Start button
+- Tap ... from top right corner and select Settings from appearing menu
+- Check "Start Forwarding on Startup" to enable port forwarding after the phone/tablet boots up
+
+Tip: tap version number 5 times -> you can start a hidden IP Checker tool for finding out IP addresses for tablet's all network devices
+
+Now you should be able to access video stream using
+- IP address 192.168.42.100 in your Andorid phone/tablet (for example in its web browser)
+- [phone/tablet's WAN IP] from other devices in Wifi/LTE network; port 8080 will be forwarded to 192.168.42.100:8080 ie. mjpg-streamer on your Odroid
 
 
 
