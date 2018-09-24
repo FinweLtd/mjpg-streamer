@@ -536,8 +536,18 @@ Now you should be able to access video stream using
 - IP address 192.168.42.100 in your Andorid phone/tablet (for example in its web browser)
 - [phone/tablet's WAN IP] from other devices in Wifi/LTE network; port 8080 will be forwarded to 192.168.42.100:8080 ie. mjpg-streamer on your Odroid
 
+Android Automation
+------------------
 
+In this guide we have tried to automate everything in Odroid to achieve a plug'n play solution: simply plug in the cables and enjoy a fault tolerant MJPG streaming system. If you decide to use an Android device as part of your archicture (for example for USB Tethering), automation of tasks on that device cannot be achieved by Linux scripting - but of course, there's an app for that!
 
+One such tool is LlamaLab's Automate. You can install it for free from Google Play:
+https://play.google.com/store/apps/details?id=com.llamalab.automate
+
+This tool allows scripting things graphically in flow chart style. One typical task to be automated is enabling the USB Tethering mode from Android device's Settings when Odroid's USB cable is plugged in; here's a ready flow chart that you can download and import to the Automate tool:
+https://www.llamalab.com/automate/community/flows/17713
+
+Notice that if you are willing to root your Android device then a lot of new possibilities open up. If not, you can still do much by allowing Automate tool to access UI and e.g. make clicks on your behalf. Beware of security issues, though - a malicious script could do pretty bad things, so don't download and run scripts/flows that you don't understand/have not examined beforehand.
 
 References
 ----------
